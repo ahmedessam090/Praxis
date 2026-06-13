@@ -1,0 +1,10 @@
+# Minimal dev dynamic config for the local Temporal stack (mounted into auto-setup).
+limit.maxIDLength:
+  - value: 255
+    constraints: {}
+system.forceSearchAttributesCacheRefreshOnRead:
+  - value: true
+    constraints: {}
+frontend.enableUpdateWorkflowExecution:
+  - value: true
+    constraints: {}
