@@ -1,0 +1,10 @@
+[theme]
+# Force a light, TradingView-like theme (the user dislikes dark mode).
+base = "light"
+primaryColor = "#2962ff"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f0f3fa"
+textColor = "#131722"
+
+[browser]
+gatherUsageStats = false

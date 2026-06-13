@@ -1,8 +1,9 @@
 """AnalyzeTickerWorkflow — the durable single-ticker analysis pipeline.
 
-Pure orchestration: build (fetch+detect+summary) -> render charts -> LLM validate
--> persist. The TickerAnalysis is threaded through each activity. now/workflow_id
-come from the deterministic workflow APIs (never wall-clock in workflow code).
+Pure orchestration: build (fetch+detect+dedup) -> vision consensus -> render charts
+-> persist. Consensus runs BEFORE rendering so the charts show only the final
+surfaced structures. The TickerAnalysis is threaded through each activity; now /
+workflow_id come from the deterministic workflow APIs (never wall-clock).
 """
 
 from __future__ import annotations
@@ -38,15 +39,15 @@ class AnalyzeTickerWorkflow:
             retry_policy=_RETRY,
         )
         analysis = await workflow.execute_activity(
-            render_charts,
+            validate_patterns,
             args=[analysis, workflow_id],
-            start_to_close_timeout=timedelta(minutes=2),
+            start_to_close_timeout=timedelta(minutes=4),
             retry_policy=_RETRY,
         )
         analysis = await workflow.execute_activity(
-            validate_patterns,
-            args=[analysis],
-            start_to_close_timeout=timedelta(minutes=4),
+            render_charts,
+            args=[analysis, workflow_id],
+            start_to_close_timeout=timedelta(minutes=2),
             retry_policy=_RETRY,
         )
         await workflow.execute_activity(

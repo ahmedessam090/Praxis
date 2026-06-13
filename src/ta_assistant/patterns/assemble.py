@@ -55,6 +55,8 @@ def to_detected_pattern(
         target=target,
         rr_ratio=rr,
         notes=cand.notes,
+        direction=cand.direction,
+        conflicts_with=list(cand.conflicts_with),
     )
 
 
@@ -77,3 +79,32 @@ def assign_nesting(patterns: Sequence[DetectedPattern]) -> None:
         if best_parent is not None:
             child.parent_id = best_parent.id
             best_parent.child_ids.append(child.id)
+
+
+def assign_conflicts(patterns: Sequence[DetectedPattern]) -> None:
+    """Flag interlock: a bearish structure whose resistance caps a bullish target.
+    Sets conflicts_with both ways and a `caution` on the bullish pattern."""
+    bulls = [p for p in patterns if p.direction == "bullish"]
+    bears = [p for p in patterns if p.direction == "bearish"]
+    for bull in bulls:
+        if bull.target is None or bull.entry is None:
+            continue
+        for bear in bears:
+            # regions must overlap in time
+            if not (bull.region_start <= bear.region_end and bear.region_start <= bull.region_end):
+                continue
+            breakdown = bear.levels.get("breakout")
+            height = bear.levels.get("pattern_height")
+            if breakdown is None or height is None:
+                continue
+            ceiling = breakdown + height  # upper extent (resistance) of the bearish structure
+            # the bull would have to push through that ceiling on its way to target
+            if bull.entry < ceiling <= bull.target:
+                if bear.id not in bull.conflicts_with:
+                    bull.conflicts_with.append(bear.id)
+                if bull.id not in bear.conflicts_with:
+                    bear.conflicts_with.append(bull.id)
+                bull.caution = (
+                    f"upside likely capped near {ceiling:.2f} by a "
+                    f"{bear.pattern_type} ({bear.status.value})"
+                )
