@@ -16,8 +16,21 @@ INVALIDATED = "invalidated"
 BULLISH = "bullish"
 BEARISH = "bearish"
 
+# Pattern tier (classical charting): CORE = a tradeable setup that defines entry/target/stop;
+# SUPPORT = context that strengthens a core setup or tells the big-picture story (rounding
+# bottom, double/triple bottom) but is not traded on its own.
+CORE = "core"
+SUPPORT = "support"
+
 # Level keys that are NOT prices (deltas / line params) — exempt from band checks.
-_NON_PRICE_LEVEL_KEYS = {"pattern_height", "neckline_slope", "neckline_intercept"}
+_NON_PRICE_LEVEL_KEYS = {
+    "pattern_height",
+    "neckline_slope",
+    "neckline_intercept",
+    "parabola_a",
+    "parabola_b",
+    "parabola_c",
+}
 
 
 @dataclass
@@ -38,6 +51,7 @@ class PatternCandidate:
     notes: str = ""
     direction: str = BULLISH
     conflicts_with: list[str] = field(default_factory=list)
+    tier: str = CORE  # CORE (tradeable) | SUPPORT (context/confirmation)
 
 
 def find_breakout_idx(ctx: GeometryContext, after_idx: int, level: float) -> int | None:

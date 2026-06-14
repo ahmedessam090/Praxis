@@ -20,7 +20,13 @@ from typing import Any
 
 import pandas as pd
 
-from ta_assistant.synthesis.schema import DetectedPattern
+from ta_assistant.synthesis.schema import (
+    DetectedPattern,
+    PriceNote,
+    Shape,
+    ShapeKind,
+    TimeframeThesis,
+)
 
 # mplfinance's classic title/labels request font weights (medium/semibold) that the bundled
 # fonts lack — the fallback is fine, but it spams the worker log. Quiet just that logger.
@@ -425,6 +431,18 @@ def _level_pills(ax: Any, width: int, patterns: Sequence[DetectedPattern]) -> No
             )
 
 
+def _apply_log_scale(ax: Any) -> None:
+    """LOG price axis with plain-number tick labels — equal % moves are equal height, so
+    multi-year trendlines/patterns read correctly (a $40->$280 stock is no longer distorted)."""
+    from matplotlib.ticker import FuncFormatter, LogLocator
+
+    ax.set_yscale("log")
+    ax.yaxis.set_major_locator(LogLocator(base=10, subs=(1.0, 2.0, 3.0, 5.0, 7.0)))
+    ax.yaxis.set_minor_locator(LogLocator(base=10, subs=(1.5, 2.5, 4.0, 6.0, 8.0, 9.0)))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:,.0f}"))
+    ax.yaxis.set_minor_formatter(FuncFormatter(lambda v, _: ""))
+
+
 def _plot_base(plot_df: pd.DataFrame, title: str, *, volume: bool = True) -> Any:
     import mplfinance as mpf
 
@@ -446,7 +464,9 @@ def _plot_base(plot_df: pd.DataFrame, title: str, *, volume: bool = True) -> Any
     }
     if addplots:
         kwargs["addplot"] = addplots
-    return mpf.plot(plot_df, **kwargs)
+    fig, axlist = mpf.plot(plot_df, **kwargs)
+    _apply_log_scale(axlist[0])  # price pane -> logarithmic
+    return fig, axlist
 
 
 def _to_plot_df(bars: pd.DataFrame) -> pd.DataFrame:
@@ -514,6 +534,106 @@ def render_pattern_png(
         box_color = _UP if pattern.direction == "bullish" else _DOWN
         ax.axhspan(min(bo, tg), max(bo, tg), xmin=0.55, color=box_color, alpha=0.08)
     _level_pills(ax, width, [pattern])
+    fig.savefig(out_path, dpi=120, bbox_inches="tight", facecolor=_BG)
+    plt.close(fig)
+    return out_path
+
+
+# --------------------- AI-thesis shapes (the analyst's drawing) ---------------------
+
+_SHAPE_COLOR = {
+    "primary": "#2962ff",
+    "resistance": "#2962ff",
+    "neckline": "#2962ff",
+    "entry": "#2962ff",
+    "breakout": "#2962ff",
+    "secondary": "#7e57c2",
+    "support": "#089981",
+    "target": "#089981",
+    "stop": "#f23645",
+    "cap": "#f23645",
+    "context": "#90a4ae",  # muted blue-gray: supporting CONTEXT (rounding bottom etc.)
+}
+
+
+def _draw_shapes(ax: Any, plot_df: pd.DataFrame, shapes: Sequence[Shape]) -> None:
+    """Draw the shapes the AI analyst specified (rails, arcs, levels, zones, markers)."""
+    width = len(plot_df)
+
+    def pos(ts: object) -> int:
+        loc = plot_df.index.get_indexer([pd.Timestamp(ts)], method="nearest")
+        return int(loc[0]) if len(loc) else 0
+
+    for sh in shapes:
+        color = sh.color or _SHAPE_COLOR.get(sh.role, "#7e57c2")
+        pts = sh.points
+        if sh.kind in (ShapeKind.TRENDLINE, ShapeKind.CURVE) and len(pts) >= 2:
+            # thick, solid bounding rail (resistance / support / neckline)
+            ax.plot([pos(p.ts) for p in pts], [p.price for p in pts], color=color, linewidth=2.4)
+        elif sh.kind == ShapeKind.HLINE and pts:
+            ax.axhline(pts[0].price, color=color, linestyle="--", linewidth=1.2, alpha=0.8)
+        elif sh.kind == ShapeKind.ZONE and len(pts) >= 2:
+            ax.axhspan(
+                min(p.price for p in pts), max(p.price for p in pts), color=color, alpha=0.08
+            )
+        elif sh.kind == ShapeKind.MARKER:
+            for p in pts:
+                x = pos(p.ts)
+                if 0 <= x < width:
+                    ax.scatter([x], [p.price], color=color, s=34, zorder=5)
+                    if sh.label:
+                        ax.annotate(
+                            sh.label,
+                            xy=(x, p.price),
+                            xytext=(0, -12),
+                            textcoords="offset points",
+                            ha="center",
+                            va="top",
+                            fontsize=8,
+                            color=color,
+                            zorder=6,
+                        )
+
+
+def _note_pills(ax: Any, width: int, notes: Sequence[PriceNote]) -> None:
+    """TradingView-style filled price pills for the analyst's price notes (deduped)."""
+    seen: set[float] = set()
+    for n in notes:
+        r = round(n.price, 2)
+        if r in seen:
+            continue
+        seen.add(r)
+        color = _SHAPE_COLOR.get(n.kind, "#2962ff")
+        ax.axhline(n.price, color=color, linewidth=0.9, linestyle="--", alpha=0.6)
+        ax.annotate(
+            n.label or f"{n.price:.2f}",
+            xy=(width - 1, n.price),
+            xytext=(4, 0),
+            textcoords="offset points",
+            va="center",
+            ha="left",
+            fontsize=8,
+            color="white",
+            bbox={"boxstyle": "round,pad=0.25", "fc": color, "ec": color},
+            zorder=6,
+        )
+
+
+def render_thesis_png(
+    bars: pd.DataFrame, thesis: TimeframeThesis, out_path: str, title: str = "", max_bars: int = 200
+) -> str:
+    """Static PNG of the AI analyst's thesis (its shapes + price notes) on a recent window."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    window = bars.iloc[-max_bars:] if len(bars) > max_bars else bars
+    plot_df = _to_plot_df(window)
+    fig, axlist = _plot_base(plot_df, title or thesis.pattern_label)
+    ax = axlist[0]
+    _draw_shapes(ax, plot_df, thesis.shapes)
+    _note_pills(ax, len(plot_df), thesis.price_notes)
     fig.savefig(out_path, dpi=120, bbox_inches="tight", facecolor=_BG)
     plt.close(fig)
     return out_path

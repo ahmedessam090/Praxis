@@ -23,6 +23,7 @@ def _p(
     stop: float = 90.0,
     height: float = 20.0,
     conflicts_with: list[str] | None = None,
+    tier: str = "core",
 ) -> DetectedPattern:
     return DetectedPattern(
         id=pid,
@@ -32,6 +33,7 @@ def _p(
         geometry_confidence=conf,
         confidence=conf,
         direction=direction,
+        tier=tier,
         levels={"breakout": breakout, "target": target, "stop": stop, "pattern_height": height},
         entry=breakout,
         target=target,
@@ -104,6 +106,24 @@ def test_interlocking_bearish_becomes_cap() -> None:
     assign_consensus([primary, cap, decoy])
     assert cap.role == "cap"  # the interlocking bear, not the higher-confidence decoy
     assert decoy.role == "considered"
+
+
+def test_support_pattern_never_becomes_primary() -> None:
+    # a higher-confidence SUPPORT double-bottom must not outrank a core rectangle
+    core = _p("c", "rectangle", breakout=100, conf=0.8, tier="core")
+    supp = _p("d", "double_bottom", breakout=140, target=170, conf=0.99, tier="support")
+    assign_consensus([core, supp])
+    assert core.role == "primary"
+    assert supp.role != "primary"
+
+
+def test_core_represents_a_mixed_cluster() -> None:
+    # core + support describing the SAME base (same breakout) -> the CORE represents it
+    core = _p("c", "ascending_triangle", breakout=100, conf=0.7, tier="core")
+    supp = _p("d", "double_bottom", breakout=101, conf=0.99, tier="support")
+    assign_consensus([core, supp])
+    assert core.role == "primary"
+    assert supp.role == "considered"
 
 
 def test_headline_prefers_weekly_over_stale_monthly() -> None:

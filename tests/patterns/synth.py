@@ -96,6 +96,14 @@ def triple_bottom_df(steps: int = 10) -> pd.DataFrame:
     return ohlcv_from_close(zigzag_closes([100, 70, 85, 70, 85, 70, 95], steps))
 
 
+def rounding_bottom_df(n: int = 61) -> pd.DataFrame:
+    # smooth convex saucer: 100 -> 40 (central vertex) -> 100 (a long-term rounding bottom)
+    x = np.arange(n)
+    a = (100.0 - 40.0) / (n / 2.0) ** 2
+    closes = a * (x - n / 2.0) ** 2 + 40.0
+    return ohlcv_from_close(closes.tolist(), band=1.0)
+
+
 # ---- bearish (warning) generators (mirror the bullish ones, topping/declining) ----
 
 

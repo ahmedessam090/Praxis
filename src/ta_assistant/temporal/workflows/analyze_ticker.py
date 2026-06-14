@@ -1,25 +1,27 @@
 """AnalyzeTickerWorkflow — the durable single-ticker analysis pipeline.
 
-Pure orchestration: build (fetch+detect+dedup) -> vision consensus -> render charts
--> persist. Consensus runs BEFORE rendering so the charts show only the final
-surfaced structures. The TickerAnalysis is threaded through each activity; now /
+Pure orchestration: build (fetch + deterministic seed) -> per-timeframe AI chartist loop
+(fan-out, one durable activity each) -> cross-timeframe synthesis -> render -> persist.
+All LLM/tool work lives inside the activities; the workflow only sequences them. now /
 workflow_id come from the deterministic workflow APIs (never wall-clock).
 """
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 with workflow.unsafe.imports_passed_through():
-    from ta_assistant.synthesis.schema import TickerAnalysis
+    from ta_assistant.synthesis.schema import TickerAnalysis, TimeframeThesis
     from ta_assistant.temporal.activities.analysis import (
+        analyze_timeframe,
         build_analysis,
         persist_analysis_result,
         render_charts,
-        validate_patterns,
+        synthesize,
     )
 
 _RETRY = RetryPolicy(maximum_attempts=3)
@@ -38,9 +40,26 @@ class AnalyzeTickerWorkflow:
             start_to_close_timeout=timedelta(minutes=4),
             retry_policy=_RETRY,
         )
+
+        # Fan out the AI chartist over each timeframe (deterministic list -> deterministic
+        # fan-out). Each loop is one durable, retried, cached activity.
+        theses: list[TimeframeThesis] = list(
+            await asyncio.gather(
+                *(
+                    workflow.execute_activity(
+                        analyze_timeframe,
+                        args=[analysis, tf, workflow_id],
+                        start_to_close_timeout=timedelta(minutes=12),
+                        retry_policy=_RETRY,
+                    )
+                    for tf in analysis.timeframes
+                )
+            )
+        )
+
         analysis = await workflow.execute_activity(
-            validate_patterns,
-            args=[analysis, workflow_id],
+            synthesize,
+            args=[analysis, theses],
             start_to_close_timeout=timedelta(minutes=4),
             retry_policy=_RETRY,
         )

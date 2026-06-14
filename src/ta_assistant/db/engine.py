@@ -19,7 +19,9 @@ def make_engine(db_path: str, echo: bool = False) -> Engine:
     def _set_sqlite_pragmas(dbapi_connection: Any, _connection_record: Any) -> None:
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA journal_mode=WAL;")
-        cursor.execute("PRAGMA busy_timeout=5000;")
+        # Generous wait so fanned-out writers (e.g. the regime fetch) queue instead of
+        # erroring "database is locked" while another holds the single write lock.
+        cursor.execute("PRAGMA busy_timeout=30000;")
         cursor.execute("PRAGMA foreign_keys=ON;")
         cursor.execute("PRAGMA synchronous=NORMAL;")
         cursor.close()

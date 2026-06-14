@@ -9,12 +9,17 @@
 from __future__ import annotations
 
 import socket
+import sys
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# Make the shared synthetic-data helpers (tests/patterns/synth.py) importable from any
+# test directory (pytest's prepend import mode only adds the collected file's own dir).
+sys.path.insert(0, str(Path(__file__).resolve().parent / "patterns"))
 
 
 def free_port() -> int:

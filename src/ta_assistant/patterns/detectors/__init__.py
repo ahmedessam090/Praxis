@@ -18,6 +18,7 @@ from ta_assistant.patterns.detectors import (
     inverse_hns,
     rectangle,
     rising_wedge,
+    rounding_bottom,
     symmetrical_triangle,
     triple_bottom,
     triple_top,
@@ -36,6 +37,8 @@ DETECTORS = [
     rectangle,
     cup_handle,
     bull_flag,
+    # support (context / confirmation — not standalone trades)
+    rounding_bottom,
     # bearish (context / warnings, not short entries)
     hns_top,
     double_top,

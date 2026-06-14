@@ -6,13 +6,18 @@ pydantic data converter). Blocking work is offloaded with asyncio.to_thread.
 from __future__ import annotations
 
 import asyncio
+import math
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 from temporalio import activity
 
-from ta_assistant.config import get_settings
+from ta_assistant.analyst.cache import bars_hash, cache_get, cache_put, content_hash
+from ta_assistant.analyst.prompts import PROMPT_VERSION
+from ta_assistant.analyst.provider import deterministic_thesis, get_analyst, textbookize
+from ta_assistant.analyst.tools import ToolContext
+from ta_assistant.config import Settings, get_settings
 from ta_assistant.data.bars_repo import load_bars, upsert_bars
 from ta_assistant.data.earnings import fetch_earnings_info
 from ta_assistant.data.providers import get_daily_history
@@ -24,7 +29,9 @@ from ta_assistant.patterns.consensus import assign_consensus, pick_headline
 from ta_assistant.patterns.context import build_context
 from ta_assistant.patterns.detectors import detect_all
 from ta_assistant.patterns.detectors.base import is_actionable, sane_levels
-from ta_assistant.presentation.charts import render_mpl, render_pattern_png
+from ta_assistant.patterns.levels import cluster_prices
+from ta_assistant.patterns.trendlines import fit_trendline
+from ta_assistant.presentation.charts import render_mpl, render_thesis_png
 from ta_assistant.synthesis.notes import analyze_notes, snapshot
 from ta_assistant.synthesis.schema import (
     AnalysisSummary,
@@ -32,10 +39,14 @@ from ta_assistant.synthesis.schema import (
     Bias,
     ChartArtifact,
     DetectedPattern,
+    Shape,
+    ShapeKind,
+    ShapePoint,
+    SynthesisRead,
     TickerAnalysis,
     Timeframe,
+    TimeframeThesis,
 )
-from ta_assistant.synthesis.validator import apply_consensus, consensus_cached, get_validator
 
 _MIN_BARS = 20
 _TF_CODE = {Timeframe.DAILY: "D", Timeframe.WEEKLY: "W", Timeframe.MONTHLY: "M"}
@@ -216,98 +227,236 @@ def _cluster_reps(patterns: list[DetectedPattern], limit: int = 6) -> list[Detec
     return (surfaced + others)[: max(limit, len(surfaced))]
 
 
-def _finalize_summary(analysis: TickerAnalysis, reads: dict[Timeframe, str]) -> None:
-    """Recompute the headline/bias/narrative from the FINAL consensus roles + vision read."""
-    head = pick_headline(analysis.patterns)
-    s = analysis.summary
-    if head is None:
-        s.overall_bias = Bias.NEUTRAL
-        s.headline = f"{analysis.symbol}: no clean long setup detected"
-        s.best_setup_id = None
-    else:
-        s.best_setup_id = head.id
-        # NEUTRAL only when geometry sees an interlock AND consensus actually surfaced a cap
-        # on that timeframe (so the analyst can overrule a spurious geometric conflict).
-        capped = bool(head.conflicts_with) and any(
-            p.role == "cap" for p in analysis.patterns_for(head.timeframe)
-        )
-        if capped:
-            s.overall_bias = Bias.NEUTRAL
-            s.headline = (
-                f"{analysis.symbol}: {head.display_label} long, "
-                f"but {head.caution or 'upside capped'}"
-            )
+def _seed_fingerprint(seeds: list[DetectedPattern]) -> str:
+    """Compact signature of the seed candidates, so a change in the deterministic hints
+    invalidates the cached thesis."""
+    return "|".join(
+        sorted(f"{p.pattern_type}:{p.direction}:{round(p.entry or 0, 2)}" for p in seeds)
+    )
+
+
+def _seed_line(p: DetectedPattern) -> str:
+    bits = []
+    if p.entry is not None:
+        bits.append(f"breakout {p.entry:.2f}")
+    if p.target is not None:
+        bits.append(f"target {p.target:.2f}")
+    if p.stop is not None:
+        bits.append(f"stop {p.stop:.2f}")
+    lv = (" (" + ", ".join(bits) + ")") if bits else ""
+    return f"{p.pattern_type} [{p.tier}, {p.direction}, {p.status.value}]{lv}"
+
+
+def _digest(symbol: str, tf: Timeframe, bars: pd.DataFrame, seeds: list[DetectedPattern]) -> str:
+    last = float(bars["close"].to_numpy(dtype=float)[-1]) if len(bars) else 0.0
+    hints = "; ".join(_seed_line(p) for p in seeds) or "none"
+    return (
+        f"Ticker {symbol}, {tf.value} timeframe. The image is the recent {tf.value} candles "
+        f"with MA50/150/200 and a volume pane; last close {last:.2f}.\n"
+        f"Engine candidate structures [tier, direction, status] — CORE = tradeable, "
+        f"SUPPORT = context only (rounding/double/triple bottom): {hints}.\n"
+        f"Pick a CORE structure as the trade (its name is pattern_label); put any SUPPORT "
+        f"structures into supporting_factors (they strengthen the setup, they are not the "
+        f"trade). Measure with the tools and call submit_thesis with exact levels, the "
+        f"shapes to draw, and price notes."
+    )
+
+
+def _provider_model(settings: Settings) -> tuple[str, str]:
+    provider = settings.active_provider
+    model = settings.anthropic_model if provider == "anthropic" else settings.openai_model
+    return provider, model
+
+
+def _rail(window: pd.DataFrame, x0: int, x1: int, p0: float, p1: float, role: str) -> Shape:
+    return Shape(
+        kind=ShapeKind.TRENDLINE,
+        points=[
+            ShapePoint(ts=window.index[x0].to_pydatetime(), price=p0),
+            ShapePoint(ts=window.index[x1].to_pydatetime(), price=p1),
+        ],
+        role=role,
+        label=role,
+    )
+
+
+def _sloped_rail(window: pd.DataFrame, pivs: list, x1: int, role: str) -> Shape:  # type: ignore[type-arg]
+    """Theil-Sen line through ALL the given pivots in LOG space (so it spans the whole
+    structure, not just the last few), projected to bar x1 to land on a log-scaled chart."""
+    line = fit_trendline([p.idx for p in pivs], [math.log(p.price) for p in pivs])
+    x0 = pivs[0].idx
+    return _rail(window, x0, x1, math.exp(line.value_at(x0)), math.exp(line.value_at(x1)), role)
+
+
+def _log_rails(window: pd.DataFrame, tf_value: str) -> list[Shape]:
+    """The two clean trendlines a chartist draws to bound a structure. Support follows the
+    recent swing LOWS (rising in an uptrend). Resistance is a FLAT level when the highs
+    repeatedly hit one (ascending-triangle look), else a sloped line through the highs."""
+    if len(window) < _MIN_BARS:
+        return []
+    ctx = build_context(window, tf_value, atr_mult=2.0, min_pct=0.02)
+    last = len(window) - 1
+    highs = [p for p in ctx.pivots if p.kind == "H" and not p.provisional]
+    lows = [p for p in ctx.pivots if p.kind == "L" and not p.provisional]
+    out: list[Shape] = []
+    if len(lows) >= 2:
+        out.append(_sloped_rail(window, lows, last, "support"))
+    if len(highs) >= 2:
+        tol = max(0.04 * ctx.last_close, 1.5 * ctx.atr_at(last))
+        level, touches = cluster_prices([p.price for p in highs], tol)[0]  # strongest level
+        members = [p for p in highs if abs(p.price - level) <= tol]
+        if touches >= 2 and len(members) >= 2:  # flat resistance the highs keep hitting
+            out.append(_rail(window, members[0].idx, last, level, level, "resistance"))
         else:
-            s.overall_bias = Bias.BULLISH
-            s.headline = (
-                f"{analysis.symbol}: {head.display_label} "
-                f"({head.status.value}) on {head.timeframe.value}"
-            )
-    vision_read = reads.get(head.timeframe) if head else None
-    flags = [n.message for n in analysis.notes if n.severity.value in ("warning", "caution")][:3]
-    parts = [vision_read.strip()] if vision_read else [s.headline.rstrip(".") + "."]
-    if head is not None and head.caution and not vision_read:
-        parts.append(head.caution[0].upper() + head.caution[1:] + ".")
+            out.append(_sloped_rail(window, highs, last, "resistance"))
+    return out
+
+
+def _apply_frame_rails(
+    thesis: TimeframeThesis, bars: pd.DataFrame, lookback: int, tf: Timeframe
+) -> TimeframeThesis:
+    """Guarantee clean bounding lines on EVERY thesis: H&S keeps its neckline+arc; anything
+    else gets the two log-fitted rails spanning the structure (so no timeframe is line-less,
+    and short detector rails are replaced by ones that span the whole base)."""
+    if any(s.role == "neckline" for s in thesis.shapes):
+        return thesis  # head-and-shoulders: the neckline + arc are the geometry
+    window = bars.iloc[-lookback:] if len(bars) > lookback else bars
+    frame = _log_rails(window, tf.value)
+    if not frame:
+        return thesis
+    kept = [
+        s
+        for s in thesis.shapes
+        if not (s.kind == ShapeKind.TRENDLINE and s.role in ("resistance", "support"))
+    ]
+    thesis.shapes = frame + kept
+    return thesis
+
+
+def _analyze_one(analysis: TickerAnalysis, tf: Timeframe, workflow_id: str) -> TimeframeThesis:
+    """Run the AI chartist's bounded vision+tool loop for ONE timeframe (cached; falls back
+    to the deterministic engine thesis on no-key / failure / insane levels)."""
+    settings = get_settings()
+    bars = load_bars(analysis.symbol, _TF_CODE[tf])
+    seeds_all = analysis.patterns_for(tf)
+    if len(bars) == 0:
+        return deterministic_thesis(tf, seeds_all)
+    seeds = _cluster_reps(seeds_all)  # deduped hints for the analyst
+    recent = bars.iloc[-_VISION_BARS[tf] :] if len(bars) > _VISION_BARS[tf] else bars
+    vision_png = _charts_dir(analysis.symbol, workflow_id) / f"_vision_{tf.value}.png"
+    render_mpl(recent, [], str(vision_png), title=f"{analysis.symbol} — {tf.value}")
+
+    provider, model = _provider_model(settings)
+    key = content_hash(
+        {
+            "kind": "thesis",
+            "symbol": analysis.symbol,
+            "tf": tf.value,
+            "prompt": PROMPT_VERSION,
+            "provider": provider,
+            "model": model,
+            "bars": bars_hash(bars),
+            "seed": _seed_fingerprint(seeds),
+        }
+    )
+    def _frame(t: TimeframeThesis) -> TimeframeThesis:
+        return _apply_frame_rails(t, bars, _OVERVIEW_BARS[tf], tf)
+
+    cached = cache_get(key, TimeframeThesis)
+    if cached is not None:
+        return _frame(cached)
+
+    ctx = ToolContext(symbol=analysis.symbol, timeframe=tf.value, df=bars, seeds=seeds)
+    result = get_analyst(settings).run_thesis_loop(
+        user_text=_digest(analysis.symbol, tf, bars, seeds),
+        image_paths=[str(vision_png)],
+        tool_ctx=ctx,
+        timeframe=tf,
+    )
+    if result.thesis is not None and result.thesis.source == "llm":
+        # snap the drawing + levels to the matching detector's textbook geometry (clean
+        # rails, correct LS/Head/RS order, deduped price tags); keep the analyst's read.
+        thesis = textbookize(result.thesis, seeds_all)
+        cache_put(key, model, thesis)
+        return _frame(thesis)
+    # fallback: deterministic engine read (LLM disabled, failed, or produced no valid thesis)
+    return _frame(deterministic_thesis(tf, seeds_all))
+
+
+_TF_WEIGHT = {Timeframe.WEEKLY: 3, Timeframe.DAILY: 2, Timeframe.MONTHLY: 1}
+
+
+def _build_synthesis(symbol: str, theses: list[TimeframeThesis]) -> SynthesisRead:
+    """Fuse the per-timeframe theses into one big-picture read (deterministic over the AI
+    theses): prefer the swing-trader's weekly/daily structure, bias from its confidence."""
+    if not theses:
+        return SynthesisRead(overall_bias=Bias.NEUTRAL, headline=f"{symbol}: no analysis")
+    pool = [t for t in theses if t.direction == "bullish" and t.confidence > 0] or theses
+    primary = max(pool, key=lambda t: (_TF_WEIGHT.get(t.timeframe, 0), round(t.confidence, 2)))
+    bullish = primary.direction == "bullish" and primary.confidence >= 0.55
+    tgt = f" → target {primary.target:.2f}" if primary.target is not None else ""
+    headline = (
+        f"{symbol}: {primary.pattern_label} ({primary.status.value}) "
+        f"on {primary.timeframe.value}{tgt}"
+    )
+    nested = "; ".join(
+        f"{t.timeframe.value}: {t.pattern_label}" for t in theses if t is not primary
+    )
+    big_tfs = (Timeframe.MONTHLY, Timeframe.WEEKLY)
+    lt = next(
+        (t for t in theses if t.timeframe in big_tfs and t is not primary),
+        None,
+    )
+    return SynthesisRead(
+        overall_bias=Bias.BULLISH if bullish else Bias.NEUTRAL,
+        headline=headline,
+        primary_timeframe=primary.timeframe,
+        nested_context=nested,
+        long_term_forming=(f"{lt.timeframe.value} {lt.pattern_label}" if lt else ""),
+    )
+
+
+def _synthesize(analysis: TickerAnalysis, theses: list[TimeframeThesis]) -> TickerAnalysis:
+    read = _build_synthesis(analysis.symbol, theses)
+    out = analysis.model_copy(update={"theses": theses, "synthesis": read})
+    primary = next((t for t in theses if t.timeframe == read.primary_timeframe), None)
+    flags = [n.message for n in out.notes if n.severity.value in ("warning", "caution")][:3]
+    parts = [read.headline.rstrip(".") + "."]
+    if primary is not None and primary.rationale:
+        parts.append(primary.rationale.strip())
     if flags:
         parts.append("Watch: " + " ".join(flags))
-    s.narrative = " ".join(parts)
-
-
-def _validate(analysis: TickerAnalysis, workflow_id: str) -> TickerAnalysis:
-    """Vision CONSENSUS per timeframe: render a clean recent-window chart, ask the analyst
-    to pick the dominant structure(s) among the deduped candidates + relabel, then recompute
-    the summary. No-op-safe (NullConsensus keeps the deterministic roles) with no key."""
-    settings = get_settings()
-    validator = get_validator(settings)
-    charts_dir = _charts_dir(analysis.symbol, workflow_id)
-    reads: dict[Timeframe, str] = {}
-    for tf in analysis.timeframes:
-        tf_patterns = analysis.patterns_for(tf)
-        if not tf_patterns:
-            continue
-        bars = load_bars(analysis.symbol, _TF_CODE[tf])
-        if len(bars) == 0:
-            continue
-        recent = bars.iloc[-_VISION_BARS[tf] :] if len(bars) > _VISION_BARS[tf] else bars
-        vision_png = charts_dir / f"_vision_{tf.value}.png"
-        render_mpl(recent, [], str(vision_png), title=f"{analysis.symbol} — {tf.value}")
-        reps = _cluster_reps(tf_patterns)
-        result = consensus_cached(validator, tf.value, str(vision_png), reps, settings.openai_model)
-        apply_consensus(tf_patterns, result)
-        # long-side backstop: if consensus surfaced no primary but a valid bullish structure
-        # exists, surface the strongest one (a bearish 'cap' still flags the interlock risk).
-        if not any(p.role == "primary" for p in reps):
-            bulls = [p for p in reps if p.direction == "bullish" and p.llm_is_valid is not False]
-            if bulls:
-                max(bulls, key=lambda p: p.confidence).role = "primary"
-        if result.read:
-            reads[tf] = result.read
-    _finalize_summary(analysis, reads)
-    return analysis
+    out.summary.overall_bias = read.overall_bias
+    out.summary.headline = read.headline
+    out.summary.narrative = " ".join(parts)
+    return out
 
 
 def _render(analysis: TickerAnalysis, workflow_id: str) -> TickerAnalysis:
-    """Render the display charts AFTER consensus, so they show only the final surfaced
-    structures: one annotated per-timeframe overview + a focused PNG per surfaced pattern."""
+    """Render one static chart per timeframe from the AI analyst's thesis (its shapes +
+    price notes), drawn on a recent window."""
     charts_dir = _charts_dir(analysis.symbol, workflow_id)
     charts: list[ChartArtifact] = []
     for tf in analysis.timeframes:
         bars = load_bars(analysis.symbol, _TF_CODE[tf])
         if len(bars) == 0:
             continue
-        surfaced = analysis.surfaced_for(tf)
+        thesis = analysis.thesis_for(tf)
         out = charts_dir / f"{tf.value}.png"
-        render_mpl(
-            bars, surfaced, str(out), title=f"{analysis.symbol} — {tf.value}",
-            max_bars=_OVERVIEW_BARS[tf],
-        )
-        charts.append(
-            ChartArtifact(timeframe=tf, png_path=str(out), pattern_ids=[p.id for p in surfaced])
-        )
-        for p in surfaced:
-            ppath = charts_dir / f"pattern_{p.id}.png"
-            render_pattern_png(bars, p, str(ppath), title=f"{analysis.symbol} — {p.display_label}")
-            p.chart_png = str(ppath)
+        if thesis is not None:
+            render_thesis_png(
+                bars,
+                thesis,
+                str(out),
+                title=f"{analysis.symbol} — {tf.value}: {thesis.pattern_label}",
+                max_bars=_OVERVIEW_BARS[tf],
+            )
+        else:
+            render_mpl(
+                bars, [], str(out), title=f"{analysis.symbol} — {tf.value}",
+                max_bars=_OVERVIEW_BARS[tf],
+            )
+        charts.append(ChartArtifact(timeframe=tf, png_path=str(out)))
     return analysis.model_copy(update={"charts": charts})
 
 
@@ -330,15 +479,25 @@ async def build_analysis(symbol: str, now_iso: str) -> TickerAnalysis:
 
 
 @activity.defn
-async def validate_patterns(analysis: TickerAnalysis, workflow_id: str) -> TickerAnalysis:
-    """Vision consensus per timeframe: pick the dominant structure(s), relabel, score, and
-    recompute the summary (cached; deterministic no-op if the LLM is disabled)."""
-    return await asyncio.to_thread(_validate, analysis, workflow_id)
+async def analyze_timeframe(
+    analysis: TickerAnalysis, timeframe: Timeframe, workflow_id: str
+) -> TimeframeThesis:
+    """Run the AI chartist's bounded vision+tool loop for ONE timeframe (cached;
+    deterministic fallback on no-key / failure). Returns that timeframe's thesis."""
+    return await asyncio.to_thread(_analyze_one, analysis, timeframe, workflow_id)
+
+
+@activity.defn
+async def synthesize(
+    analysis: TickerAnalysis, theses: list[TimeframeThesis]
+) -> TickerAnalysis:
+    """Fuse the per-timeframe theses into the overall bias/headline/narrative."""
+    return await asyncio.to_thread(_synthesize, analysis, theses)
 
 
 @activity.defn
 async def render_charts(analysis: TickerAnalysis, workflow_id: str) -> TickerAnalysis:
-    """Render the final display charts (per-timeframe overview + per-pattern PNGs)."""
+    """Render one static chart per timeframe from the final thesis shapes."""
     return await asyncio.to_thread(_render, analysis, workflow_id)
 
 

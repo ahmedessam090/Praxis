@@ -84,3 +84,17 @@ class LlmCache(Base):
     model: Mapped[str] = mapped_column(String(48))
     result_json: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RegimeSnapshotRow(Base):
+    """A persisted Market Regime read — the full snapshot (input chart series + every
+    metric value + the conclusion) in payload_json. Idempotent on a workflow-derived
+    dedup_key; the dashboard reads the most-recent row by created_at."""
+
+    __tablename__ = "regime_snapshots"
+
+    dedup_key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    overall_state: Mapped[str] = mapped_column(String(48))
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

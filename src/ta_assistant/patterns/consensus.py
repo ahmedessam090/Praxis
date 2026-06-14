@@ -110,12 +110,18 @@ def assign_consensus(patterns: Sequence[DetectedPattern]) -> None:
         for p in cl:
             p.cluster_id = cid
             p.role = CONSIDERED
-        reps.append(max(cl, key=_rep_key))
+        # a CORE pattern always represents its cluster over a SUPPORT one (e.g. a rectangle
+        # over a double-bottom describing the same base) so the tradeable read isn't lost.
+        reps.append(max(cl, key=lambda q: (q.tier == "core", _rep_key(q))))
 
     for tf in {r.timeframe for r in reps}:
         tf_reps = [r for r in reps if r.timeframe == tf]
+        # primary/secondary must be CORE (tradeable) structures — a rounding/double/triple
+        # bottom (tier=support) strengthens a setup but is never the trade itself.
         bulls = sorted(
-            (r for r in tf_reps if r.direction == "bullish"), key=_rep_key, reverse=True
+            (r for r in tf_reps if r.direction == "bullish" and r.tier == "core"),
+            key=_rep_key,
+            reverse=True,
         )
         bears = sorted(
             (r for r in tf_reps if r.direction == "bearish"), key=_rep_key, reverse=True

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ta_assistant.patterns.context import GeometryContext
-from ta_assistant.patterns.detectors.base import PatternCandidate, classify, closeness_conf
+from ta_assistant.patterns.detectors.base import SUPPORT, PatternCandidate, classify, closeness_conf
 
 PATTERN_TYPE = "triple_bottom"
 
@@ -42,6 +42,7 @@ def detect(ctx: GeometryContext) -> list[PatternCandidate]:
                 region_start_idx=low1.idx,
                 region_end_idx=low3.idx,
                 breakout_idx=breakout_idx,
+                tier=SUPPORT,  # confirmation/context, not a standalone trade
             )
         ]
     return []

@@ -1,5 +1,5 @@
 """End-to-end AnalyzeTickerWorkflow: sandbox-validated workflow + real activities
-(mocked data provider + NullConsensus) -> patterns, charts on disk, persisted row."""
+(mocked data provider + NullAnalyst) -> theses, synthesis, charts on disk, persisted row."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ from temporalio.worker import Worker
 from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner
 
 import ta_assistant.temporal.activities.analysis as analysis_mod
+from ta_assistant.analyst.provider import NullAnalyst
 from ta_assistant.db.session import get_engine
-from ta_assistant.synthesis.validator import NullConsensus
 from ta_assistant.temporal.activities import ALL_ACTIVITIES
 from ta_assistant.temporal.sandbox import SANDBOX_RESTRICTIONS
 from ta_assistant.temporal.workflows import ALL_WORKFLOWS
@@ -59,7 +59,7 @@ async def test_analyze_ticker_end_to_end(temp_db: str, monkeypatch: pytest.Monke
     monkeypatch.setattr(
         analysis_mod, "get_daily_history", lambda symbol: (_double_bottom_daily(), "mock")
     )
-    monkeypatch.setattr(analysis_mod, "get_validator", lambda settings=None: NullConsensus())
+    monkeypatch.setattr(analysis_mod, "get_analyst", lambda settings=None: NullAnalyst())
     monkeypatch.setattr(analysis_mod, "fetch_earnings_info", lambda symbol, today: None)
 
     async with await WorkflowEnvironment.start_local(
@@ -82,19 +82,24 @@ async def test_analyze_ticker_end_to_end(temp_db: str, monkeypatch: pytest.Monke
     assert result.symbol == "TEST"
     assert result.summary.price_now == pytest.approx(112, abs=2)
 
+    # the engine detects the double bottom, now tagged SUPPORT (context, not a trade)
     daily = [p for p in result.patterns if p.timeframe.value == "daily"]
-    db_pat = next(p for p in daily if p.pattern_type == "double_bottom")
-    assert db_pat.entry is not None and db_pat.target is not None
+    db = next((p for p in daily if p.pattern_type == "double_bottom"), None)
+    assert db is not None and db.tier == "support"
 
-    # consensus surfaced 1-3 structures and the (Null) analyst wrote a rationale on them
-    surfaced = [p for p in result.patterns if p.role in ("primary", "secondary", "cap")]
-    assert surfaced
-    assert any(p.llm_rationale for p in surfaced)
+    # a thesis per timeframe, all labelled; the double bottom surfaces as a SUPPORTING factor
+    assert result.theses
+    assert all(t.pattern_label for t in result.theses)
+    daily_thesis = next((t for t in result.theses if t.timeframe.value == "daily"), None)
+    assert daily_thesis is not None
+    assert any("double bottom" in f for f in daily_thesis.supporting_factors)
+    # cross-timeframe synthesis was set and drove the summary
+    assert result.synthesis is not None
+    assert result.summary.headline
 
+    # one static chart per timeframe on disk; one persisted row
     assert result.charts
     assert all(Path(c.png_path).exists() for c in result.charts)
-    # focused per-pattern images exist for the surfaced structures
-    assert all(p.chart_png and Path(p.chart_png).exists() for p in surfaced)
 
     with get_engine(temp_db).connect() as conn:
         count = conn.execute(sa.text("SELECT COUNT(*) FROM analyses WHERE symbol='TEST'")).scalar()

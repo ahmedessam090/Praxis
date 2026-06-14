@@ -5,12 +5,19 @@ from __future__ import annotations
 from ta_assistant.temporal.workflows.analyze_ticker import AnalyzeTickerWorkflow
 from ta_assistant.temporal.workflows.candidate_analysis import CandidateAnalysisWorkflow
 from ta_assistant.temporal.workflows.crash_demo import CrashDemoWorkflow
+from ta_assistant.temporal.workflows.market_regime import MarketRegimeWorkflow
 
-ALL_WORKFLOWS = [AnalyzeTickerWorkflow, CandidateAnalysisWorkflow, CrashDemoWorkflow]
+ALL_WORKFLOWS = [
+    AnalyzeTickerWorkflow,
+    CandidateAnalysisWorkflow,
+    CrashDemoWorkflow,
+    MarketRegimeWorkflow,
+]
 
 __all__ = [
     "ALL_WORKFLOWS",
     "AnalyzeTickerWorkflow",
     "CandidateAnalysisWorkflow",
     "CrashDemoWorkflow",
+    "MarketRegimeWorkflow",
 ]

@@ -39,3 +39,29 @@ def test_env_overrides(monkeypatch):
 
 def test_get_settings_is_cached():
     assert get_settings() is get_settings()
+
+
+def test_llm_active_and_provider_selection():
+    # no keys -> inactive, provider none
+    s = Settings(_env_file=None, llm_enabled=True)
+    assert s.llm_active is False
+    assert s.active_provider == "none"
+
+    # anthropic key present -> active, anthropic preferred
+    s = Settings(_env_file=None, llm_enabled=True, anthropic_api_key="x")
+    assert s.llm_active is True
+    assert s.active_provider == "anthropic"
+
+    # only openai key -> active, openai (openai_api_key uses a validation_alias)
+    s = Settings(_env_file=None, llm_enabled=True, OPENAI_API_KEY="x")
+    assert s.llm_active is True
+    assert s.active_provider == "openai"
+
+    # both keys -> anthropic wins
+    s = Settings(_env_file=None, llm_enabled=True, anthropic_api_key="a", OPENAI_API_KEY="o")
+    assert s.active_provider == "anthropic"
+
+    # disabled -> inactive regardless of keys
+    s = Settings(_env_file=None, llm_enabled=False, anthropic_api_key="a")
+    assert s.llm_active is False
+    assert s.active_provider == "none"

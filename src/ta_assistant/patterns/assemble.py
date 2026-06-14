@@ -56,6 +56,7 @@ def to_detected_pattern(
         rr_ratio=rr,
         notes=cand.notes,
         direction=cand.direction,
+        tier=cand.tier,
         conflicts_with=list(cand.conflicts_with),
     )
 

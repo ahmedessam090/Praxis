@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+/* next-themes uses a `.dark` class on <html> */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #f6f7f9;
+  --surface: #ffffff;
+  --card: #ffffff;
+  --foreground: #0f172a;
+  --muted: #64748b;
+  --border: #e6e9ee;
+  --ring: #2962ff;
+  --bull: #0a9d6e;
+  --bear: #e23645;
+  --neutral: #d59512;
+  --brand: #2962ff;
+}
+
+.dark {
+  --background: #0a0e16;
+  --surface: #121826;
+  --card: #121826;
+  --foreground: #e6edf3;
+  --muted: #8b97a7;
+  --border: #1e2738;
+  --ring: #3b82f6;
+  --bull: #21c08a;
+  --bear: #f6465d;
+  --neutral: #f0b429;
+  --brand: #4f86ff;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --color-bull: var(--bull);
+  --color-bear: var(--bear);
+  --color-neutral: var(--neutral);
+  --color-brand: var(--brand);
+  --radius-xl: 0.9rem;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--brand) 30%, transparent);
+}
+
+/* thin, themed scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
