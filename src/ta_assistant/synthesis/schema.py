@@ -346,3 +346,109 @@ class RegimeSnapshot(BaseModel):
 
     def charts_for(self, pillar_key: str) -> list[RegimeChart]:
         return [c for c in self.charts if c.pillar_key == pillar_key]
+
+
+# --- Alpha screener (candidate scanner) ---
+
+
+class ScreenFactor(BaseModel):
+    """One pre-screen reading shown on a scanner candidate row."""
+
+    label: str
+    value: str
+    status: Bias = Bias.NEUTRAL
+
+
+class AlphaReason(BaseModel):
+    """One structured, reviewable reason behind an alpha verdict."""
+
+    category: str  # e.g. "Trend", "Pattern", "Regime", "Risk/Reward", "Relative strength"
+    detail: str
+    status: Bias = Bias.NEUTRAL
+
+
+class AlphaVerdict(BaseModel):
+    """agent2/agent3 output: is this a genuine alpha opportunity, why, and what it saw."""
+
+    symbol: str
+    is_alpha: bool = False
+    conviction: int = 0  # 0-100
+    stage: str = ""  # e.g. "Stage 2 breakout", "early base"
+    sector: str = ""
+    regime_alignment: str = ""
+    entry: float | None = None
+    stop: float | None = None
+    target: float | None = None
+    rr: float | None = None
+    reasons: list[AlphaReason] = Field(default_factory=list)
+    summary: str = ""
+    source: str = "deterministic"  # "llm" | "deterministic"
+    inputs: str = ""  # the exact digest of facts the agent was given (for auditing)
+
+
+class CandidateStatus(StrEnum):
+    PENDING = "pending"  # scanned, not yet evaluated
+    EVALUATING = "evaluating"  # pushed to the alpha pipeline
+    ALPHA = "alpha"  # evaluated -> made the alpha list
+    NOT_ALPHA = "not_alpha"  # evaluated -> rejected
+
+
+class ScreenerCandidate(BaseModel):
+    """A scanner hit — a ticker that MIGHT have a good trade (cheap pre-screen, not yet
+    the full agent analysis). The user selects these to push into the alpha pipeline.
+    Once evaluated, it carries the agent's verdict (reasons + the inputs it saw)."""
+
+    symbol: str
+    sector: str
+    score: float = 0.0
+    status: CandidateStatus = CandidateStatus.PENDING
+    factors: list[ScreenFactor] = Field(default_factory=list)
+    source: str = "screen"  # "screen" (deterministic) | "llm" (augmentation)
+    generated_at: datetime
+    verdict: AlphaVerdict | None = None  # set after evaluation (alpha OR not_alpha)
+
+
+class KeyLevel(BaseModel):
+    """A price point worth watching on an alpha name (resistance / support / a high)."""
+
+    price: float
+    kind: str  # "52w_high" | "all_time_high" | "resistance" | "support" | "breakout"
+    label: str
+    distance_pct: float = 0.0  # signed % from the current price (+ = above, - = below)
+
+
+class GapNote(BaseModel):
+    """A textbook (non-common) price gap worth the trader's attention. Common gaps are
+    suppressed (they add nothing)."""
+
+    date: str  # ISO date of the gap bar
+    kind: str  # "breakaway" | "runaway" | "exhaustion"
+    direction: str  # "up" | "down"
+    gap_pct: float
+    lower: float  # bottom edge of the gap zone (acts as support/resistance)
+    upper: float  # top edge of the gap zone
+    filled: bool = False
+    volume_ratio: float | None = None  # gap-day volume vs the ~50-day average
+    note: str = ""  # plain-English read of the gap's significance
+
+
+class AlphaItem(BaseModel):
+    """A live ALPHA list entry. The underlying TickerAnalysis is stored separately
+    (`analyses` table) and powers the detail view via the existing Ticker components."""
+
+    symbol: str
+    verdict: AlphaVerdict
+    analysis_generated_at: datetime
+    updated_at: datetime
+    levels: list[KeyLevel] = Field(default_factory=list)  # price points to watch
+    gaps: list[GapNote] = Field(default_factory=list)  # notable (non-common) gaps
+
+
+class DowngradedItem(BaseModel):
+    """A formerly-alpha name that no longer qualifies."""
+
+    symbol: str
+    prior_conviction: int = 0
+    prior_summary: str = ""
+    downgrade_reason: str = ""
+    downgraded_at: datetime

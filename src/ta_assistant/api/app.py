@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from ta_assistant.api.routers import analysis, health, llm, regime
+from ta_assistant.api.routers import analysis, health, llm, regime, screener
 from ta_assistant.config import get_settings
 
 
@@ -31,6 +31,7 @@ def create_app() -> FastAPI:
     app.include_router(regime.router)
     app.include_router(analysis.router)
     app.include_router(llm.router)
+    app.include_router(screener.router)
     return app
 
 

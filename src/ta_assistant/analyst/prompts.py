@@ -1,9 +1,21 @@
 """Prompts for the AI chartist + the cross-timeframe synthesis. Bump PROMPT_VERSION on
-any change so the thesis cache invalidates."""
+any change so the thesis cache invalidates.
+
+The ALPHA decision rubric is NOT hard-coded here — it lives in `alpha_rules.md` (editable
+prose, the single source of truth). `ALPHA_SYSTEM` = that rubric + the strict JSON contract
+below. `ALPHA_RULES_VERSION` is a content hash folded into the alpha verdict cache key, so
+editing the rubric auto-invalidates cached verdicts without touching code."""
 
 from __future__ import annotations
 
-PROMPT_VERSION = "analyst-v9"
+import hashlib
+import logging
+import re
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+PROMPT_VERSION = "analyst-v12"
 
 # Teach the classical taxonomy so the model names the structure precisely instead of
 # defaulting to one label.
@@ -103,6 +115,69 @@ REGIME_SYSTEM = (
     "means for buying breakouts now}. "
     "If the evidence is genuinely mixed/unclear, prefer 'neutral' + 'selective' over a "
     "false-confident call."
+)
+
+SCAN_AUGMENT_SYSTEM = (
+    "You assist a LONG-only swing-trader's stock scanner. You are given the market's currently "
+    "LEADING sectors and a list of tickers already being considered. Propose ADDITIONAL liquid, "
+    "well-known US-listed large/mid-cap stocks (real tickers only) that are likely in strong "
+    "Stage-2 uptrends within those leading sectors and are NOT already in the considered list. "
+    "Favour quality leaders riding the wave. Respond ONLY as strict JSON mapping each sector to a "
+    'short list of tickers, e.g. {"technology": ["NVDA","AVGO"], "energy": ["FANG"]}. Use only the '
+    "sector keys provided. At most 4 tickers per sector. No prose."
+)
+
+# --- ALPHA rubric: loaded from the editable alpha_rules.md (the single source of truth) ---
+
+_ALPHA_RULES_PATH = Path(__file__).with_name("alpha_rules.md")
+_HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+# Safety net only — used if alpha_rules.md is missing/unreadable so the app never dies on import.
+_ALPHA_RULES_FALLBACK = (
+    "Judge whether this is a genuine ALPHA opportunity for a LONG-only swing trader: it must "
+    "have a confirmed Stage-2 uptrend (trend-template intact), a risk-on market regime, and an "
+    "actionable setup with a clear trigger. Do not gate on risk:reward, distance from highs, "
+    "sector, or RSI. Near-highs and a leading sector raise conviction; below the 200-week SMA "
+    "and extreme extension lower it."
+)
+
+
+def _load_alpha_rules() -> str:
+    """Read the editable rubric, stripping human-only HTML comments before it reaches the LLM."""
+    try:
+        raw = _ALPHA_RULES_PATH.read_text(encoding="utf-8")
+    except OSError as exc:  # pragma: no cover - the file ships with the package
+        logger.warning("alpha_rules.md unreadable (%s); using built-in fallback rubric", exc)
+        return _ALPHA_RULES_FALLBACK
+    return _HTML_COMMENT.sub("", raw).strip() or _ALPHA_RULES_FALLBACK
+
+
+# The strict JSON output contract is a machine contract — it stays in code, not in the rubric.
+ALPHA_JSON_CONTRACT = (
+    "Respond ONLY as strict JSON, no prose: "
+    '{"is_alpha": true|false, "conviction": 0-100, "stage": short phrase, '
+    '"regime_alignment": short phrase, "entry": number|null, "stop": number|null, '
+    '"target": number|null, "reasons": [{"category": one of '
+    "'Trend'|'Pattern'|'Regime'|'Sector'|'Relative strength'|'Long-term trend'|'Extension'|"
+    "'Volume', "
+    '"detail": one line, "status": "bullish"|"neutral"|"bearish"}], '
+    '"summary": 2-3 sentences on the opportunity + the entry plan}. '
+    "Use the analysis's own measured levels for entry/stop/target. If it is not alpha, still give "
+    "reasons explaining what's missing."
+)
+
+ALPHA_RULES = _load_alpha_rules()
+# Folded into the alpha verdict cache key: editing alpha_rules.md busts cached verdicts only
+# (not the unrelated ticker-analysis cache), with no PROMPT_VERSION bump needed.
+ALPHA_RULES_VERSION = hashlib.sha256(ALPHA_RULES.encode("utf-8")).hexdigest()[:12]
+
+ALPHA_SYSTEM = f"{ALPHA_RULES}\n\n{ALPHA_JSON_CONTRACT}"
+
+ALPHA_REFRESH_SYSTEM = (
+    ALPHA_SYSTEM
+    + "\nThis is a RE-EVALUATION of a stock already on the alpha list; you are also given the "
+    "PRIOR verdict. Decide if it STILL qualifies. If the setup has triggered and extended, broken "
+    "down, lost relative strength, or the regime/sector turned against it, set is_alpha=false (it "
+    "will be downgraded) and explain what changed in the summary."
 )
 
 SYNTHESIS_SYSTEM = (

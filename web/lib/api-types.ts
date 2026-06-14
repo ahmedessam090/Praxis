@@ -166,10 +166,287 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/screener/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Jobs
+         * @description Which trigger types are currently running (so the UI can disable buttons).
+         */
+        get: operations["jobs_api_screener_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/screener/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Status */
+        get: operations["status_api_screener_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/screener/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Scan */
+        post: operations["scan_api_screener_scan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/screener/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Candidates */
+        get: operations["candidates_api_screener_candidates_get"];
+        put?: never;
+        /**
+         * Add Candidate
+         * @description Manually add a ticker: validate + score it like a scanned candidate.
+         */
+        post: operations["add_candidate_api_screener_candidates_post"];
+        /** Clear Candidates */
+        delete: operations["clear_candidates_api_screener_candidates_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/screener/candidates/{symbol}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Candidate */
+        delete: operations["delete_candidate_api_screener_candidates__symbol__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/screener/alpha/evaluate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Evaluate */
+        post: operations["evaluate_api_screener_alpha_evaluate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/screener/alpha": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Alpha */
+        get: operations["alpha_api_screener_alpha_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/screener/alpha/{symbol}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Alpha */
+        delete: operations["delete_alpha_api_screener_alpha__symbol__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/screener/alpha/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh */
+        post: operations["refresh_api_screener_alpha_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/screener/downgraded": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Downgraded */
+        get: operations["downgraded_api_screener_downgraded_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AddRequest */
+        AddRequest: {
+            /** Symbol */
+            symbol: string;
+        };
+        /**
+         * AlphaItem
+         * @description A live ALPHA list entry. The underlying TickerAnalysis is stored separately
+         *     (`analyses` table) and powers the detail view via the existing Ticker components.
+         */
+        AlphaItem: {
+            /** Symbol */
+            symbol: string;
+            verdict: components["schemas"]["AlphaVerdict"];
+            /**
+             * Analysis Generated At
+             * Format: date-time
+             */
+            analysis_generated_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Levels */
+            levels?: components["schemas"]["KeyLevel"][];
+            /** Gaps */
+            gaps?: components["schemas"]["GapNote"][];
+        };
+        /**
+         * AlphaReason
+         * @description One structured, reviewable reason behind an alpha verdict.
+         */
+        AlphaReason: {
+            /** Category */
+            category: string;
+            /** Detail */
+            detail: string;
+            /** @default neutral */
+            status: components["schemas"]["Bias"];
+        };
+        /**
+         * AlphaVerdict
+         * @description agent2/agent3 output: is this a genuine alpha opportunity, why, and what it saw.
+         */
+        AlphaVerdict: {
+            /** Symbol */
+            symbol: string;
+            /**
+             * Is Alpha
+             * @default false
+             */
+            is_alpha: boolean;
+            /**
+             * Conviction
+             * @default 0
+             */
+            conviction: number;
+            /**
+             * Stage
+             * @default
+             */
+            stage: string;
+            /**
+             * Sector
+             * @default
+             */
+            sector: string;
+            /**
+             * Regime Alignment
+             * @default
+             */
+            regime_alignment: string;
+            /** Entry */
+            entry?: number | null;
+            /** Stop */
+            stop?: number | null;
+            /** Target */
+            target?: number | null;
+            /** Rr */
+            rr?: number | null;
+            /** Reasons */
+            reasons?: components["schemas"]["AlphaReason"][];
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /**
+             * Source
+             * @default deterministic
+             */
+            source: string;
+            /**
+             * Inputs
+             * @default
+             */
+            inputs: string;
+        };
         /** AnalysisSummary */
         AnalysisSummary: {
             overall_bias: components["schemas"]["Bias"];
@@ -195,6 +472,11 @@ export interface components {
          * @enum {string}
          */
         Bias: "bullish" | "neutral" | "bearish";
+        /**
+         * CandidateStatus
+         * @enum {string}
+         */
+        CandidateStatus: "pending" | "evaluating" | "alpha" | "not_alpha";
         /** Candle */
         Candle: {
             /** Time */
@@ -339,6 +621,65 @@ export interface components {
              */
             notes: string;
         };
+        /**
+         * DowngradedItem
+         * @description A formerly-alpha name that no longer qualifies.
+         */
+        DowngradedItem: {
+            /** Symbol */
+            symbol: string;
+            /**
+             * Prior Conviction
+             * @default 0
+             */
+            prior_conviction: number;
+            /**
+             * Prior Summary
+             * @default
+             */
+            prior_summary: string;
+            /**
+             * Downgrade Reason
+             * @default
+             */
+            downgrade_reason: string;
+            /**
+             * Downgraded At
+             * Format: date-time
+             */
+            downgraded_at: string;
+        };
+        /**
+         * GapNote
+         * @description A textbook (non-common) price gap worth the trader's attention. Common gaps are
+         *     suppressed (they add nothing).
+         */
+        GapNote: {
+            /** Date */
+            date: string;
+            /** Kind */
+            kind: string;
+            /** Direction */
+            direction: string;
+            /** Gap Pct */
+            gap_pct: number;
+            /** Lower */
+            lower: number;
+            /** Upper */
+            upper: number;
+            /**
+             * Filled
+             * @default false
+             */
+            filled: boolean;
+            /** Volume Ratio */
+            volume_ratio?: number | null;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -377,6 +718,23 @@ export interface components {
             pct_above_sma50?: number | null;
             /** Trend Template Pass */
             trend_template_pass?: boolean | null;
+        };
+        /**
+         * KeyLevel
+         * @description A price point worth watching on an alpha name (resistance / support / a high).
+         */
+        KeyLevel: {
+            /** Price */
+            price: number;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /**
+             * Distance Pct
+             * @default 0
+             */
+            distance_pct: number;
         };
         /**
          * LongPosture
@@ -603,6 +961,50 @@ export interface components {
          * @enum {string}
          */
         RegimeState: "confirmed_uptrend" | "uptrend_under_pressure" | "neutral" | "correction" | "bear";
+        /**
+         * ScreenFactor
+         * @description One pre-screen reading shown on a scanner candidate row.
+         */
+        ScreenFactor: {
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
+            /** @default neutral */
+            status: components["schemas"]["Bias"];
+        };
+        /**
+         * ScreenerCandidate
+         * @description A scanner hit — a ticker that MIGHT have a good trade (cheap pre-screen, not yet
+         *     the full agent analysis). The user selects these to push into the alpha pipeline.
+         *     Once evaluated, it carries the agent's verdict (reasons + the inputs it saw).
+         */
+        ScreenerCandidate: {
+            /** Symbol */
+            symbol: string;
+            /** Sector */
+            sector: string;
+            /**
+             * Score
+             * @default 0
+             */
+            score: number;
+            /** @default pending */
+            status: components["schemas"]["CandidateStatus"];
+            /** Factors */
+            factors?: components["schemas"]["ScreenFactor"][];
+            /**
+             * Source
+             * @default screen
+             */
+            source: string;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            verdict?: components["schemas"]["AlphaVerdict"] | null;
+        };
         /** Shape */
         Shape: {
             kind: components["schemas"]["ShapeKind"];
@@ -635,6 +1037,14 @@ export interface components {
             ts: string;
             /** Price */
             price: number;
+        };
+        /** SymbolsRequest */
+        SymbolsRequest: {
+            /**
+             * Symbols
+             * @default []
+             */
+            symbols: string[];
         };
         /**
          * SynthesisRead
@@ -1017,6 +1427,334 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    jobs_api_screener_jobs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
+                };
+            };
+        };
+    };
+    status_api_screener_status_get: {
+        parameters: {
+            query: {
+                workflow_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scan_api_screener_scan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+    };
+    candidates_api_screener_candidates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenerCandidate"][];
+                };
+            };
+        };
+    };
+    add_candidate_api_screener_candidates_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenerCandidate"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_candidates_api_screener_candidates_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: number;
+                    };
+                };
+            };
+        };
+    };
+    delete_candidate_api_screener_candidates__symbol__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                symbol: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    evaluate_api_screener_alpha_evaluate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SymbolsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    alpha_api_screener_alpha_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlphaItem"][];
+                };
+            };
+        };
+    };
+    delete_alpha_api_screener_alpha__symbol__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                symbol: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_api_screener_alpha_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SymbolsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    downgraded_api_screener_downgraded_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DowngradedItem"][];
                 };
             };
         };

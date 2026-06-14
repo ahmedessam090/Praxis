@@ -17,6 +17,7 @@ import pandas as pd
 from ta_assistant.data.resample import to_weekly
 from ta_assistant.regime import metrics as M
 from ta_assistant.regime import universe as U
+from ta_assistant.regime.sectors import rank_sectors
 from ta_assistant.synthesis.schema import (
     Bias,
     LongPosture,
@@ -390,6 +391,36 @@ def _intermarket(frames: dict[str, pd.DataFrame]) -> RegimePillar:
     )
 
 
+def _sector_leadership(frames: dict[str, pd.DataFrame]) -> RegimePillar:
+    ranks = rank_sectors(frames)
+    metrics: list[RegimeMetric] = []
+    for r in ranks:
+        metrics.append(
+            _mk(
+                f"sector_{r.sector}",
+                f"{r.sector.replace('_', ' ').title()} ({r.etf})",
+                r.rs_status,
+                f"RS {r.rs_pct:+.1f}% vs SPY · {r.trend_pct:+.1f}% 3m",
+                "Relative strength of the sector ETF vs the S&P 500.",
+                "Sector RS (Murphy)",
+                r.score,
+            )
+        )
+    leaders = [r.sector.replace("_", " ") for r in ranks[:3]]
+    score = _score_of([m for m in metrics if m.status is not Bias.NEUTRAL][:6])
+    summary = (
+        f"Leaders: {', '.join(leaders)}." if leaders else "No sector data."
+    )
+    return RegimePillar(
+        key="sector_leadership",
+        name="Sector Leadership",
+        status=_status_from_score(score),
+        score=score,
+        summary=summary + " The Alpha scanner favours the leaders.",
+        metrics=metrics,
+    )
+
+
 def _volatility(frames: dict[str, pd.DataFrame]) -> RegimePillar:
     metrics: list[RegimeMetric] = []
     if U.VIX in frames and len(frames[U.VIX]) > 0:
@@ -544,6 +575,7 @@ def assess(frames: dict[str, pd.DataFrame], now: datetime) -> tuple[list[RegimeP
         _supply_demand(frames),
         _breadth(frames),
         _intermarket(frames),
+        _sector_leadership(frames),
         _volatility(frames),
     ]
     return pillars, _verdict(pillars)

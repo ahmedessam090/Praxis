@@ -67,11 +67,18 @@ def test_distribution_pressure_downgrades_state() -> None:
     assert v.posture in (LongPosture.SELECTIVE, LongPosture.DEFENSIVE)
 
 
-def test_five_pillars_always_present() -> None:
+def test_pillars_always_present() -> None:
     f = _bull_frames()
     pillars, _v = assess(f, _now(f))
     keys = {p.key for p in pillars}
-    assert keys == {"primary_trend", "supply_demand", "breadth", "intermarket", "volatility"}
+    assert keys == {
+        "primary_trend",
+        "supply_demand",
+        "breadth",
+        "intermarket",
+        "sector_leadership",
+        "volatility",
+    }
 
 
 def test_liquidity_metric_surfaced_not_known_without_data() -> None:

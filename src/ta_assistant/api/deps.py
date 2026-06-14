@@ -23,7 +23,24 @@ async def temporal_client() -> Client:
 
 
 async def workflow_status(workflow_id: str) -> str:
-    """Status name of a workflow run (RUNNING | COMPLETED | FAILED | …), or UNKNOWN."""
+    """Status name of a workflow run (RUNNING | COMPLETED | FAILED | …), or UNKNOWN.
+    Returns UNKNOWN (not a 500) if the handle can't be described (bad id / transient RPC)."""
     client = await temporal_client()
-    desc = await client.get_workflow_handle(workflow_id).describe()
+    try:
+        desc = await client.get_workflow_handle(workflow_id).describe()
+    except Exception:  # noqa: BLE001 - surface a pollable status, not a 500
+        return "UNKNOWN"
     return desc.status.name if desc.status is not None else "UNKNOWN"
+
+
+async def is_running(workflow_type: str) -> bool:
+    """True if any workflow of `workflow_type` is currently Running (for disabling
+    trigger buttons). Best-effort: returns False if visibility isn't available."""
+    client = await temporal_client()
+    try:
+        query = f"WorkflowType = '{workflow_type}' AND ExecutionStatus = 'Running'"
+        async for _ in client.list_workflows(query):
+            return True
+        return False
+    except Exception:  # noqa: BLE001 - never let a visibility hiccup block the UI
+        return False

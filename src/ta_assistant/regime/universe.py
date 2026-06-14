@@ -64,6 +64,23 @@ INTERMARKET = [
     LOW_VOL,
 ]
 
+# --- GICS sector ETFs (for the Sector Leadership ranking: each vs SPY) ---
+SECTOR_ETF = {
+    "technology": "XLK",
+    "communication": "XLC",
+    "discretionary": "XLY",
+    "staples": "XLP",
+    "health": "XLV",
+    "financials": "XLF",
+    "industrials": "XLI",
+    "energy": "XLE",
+    "materials": "XLB",
+    "utilities": "XLU",
+    "real_estate": "XLRE",
+}
+SECTORS = list(SECTOR_ETF)
+SECTOR_ETFS = list(SECTOR_ETF.values())
+
 # --- Breadth basket: ~45 liquid, sector-spread large caps (proxy for % above MA /
 # net new highs-lows, since yfinance lacks an exchange-wide A/D feed). Reusable later
 # for the Alpha-list universe screener. ---
@@ -96,6 +113,7 @@ def all_symbols() -> list[str]:
         COMMODITY_ETFS,
         [DXY, *DXY_FALLBACKS],
         INTERMARKET,
+        SECTOR_ETFS,
         BREADTH_BASKET,
     ):
         for s in group:
@@ -110,6 +128,7 @@ def fetch_groups() -> list[list[str]]:
         INDICES,
         [*COMMODITIES, *COMMODITY_ETFS, DXY, *DXY_FALLBACKS],
         INTERMARKET,
+        SECTOR_ETFS,
     ]
     basket = BREADTH_BASKET
     chunk = 15

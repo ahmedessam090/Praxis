@@ -17,6 +17,8 @@ SANDBOX_RESTRICTIONS = SandboxRestrictions.default.with_passthrough_modules(
     "ta_assistant.temporal.activities.persist",
     "ta_assistant.temporal.activities.crash_demo",
     "ta_assistant.temporal.activities.analysis",
+    "ta_assistant.temporal.activities.regime",
+    "ta_assistant.temporal.activities.screener",
     "ta_assistant.synthesis.schema",
     "ta_assistant.db.models",
     "pydantic",

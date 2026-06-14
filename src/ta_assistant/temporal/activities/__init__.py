@@ -20,6 +20,15 @@ from ta_assistant.temporal.activities.regime import (
     fetch_regime_bars,
     persist_regime,
 )
+from ta_assistant.temporal.activities.screener import (
+    decide_alpha,
+    fetch_screen_bars,
+    persist_alpha_result,
+    persist_candidates,
+    persist_refresh_result,
+    rejudge_alpha,
+    scan_candidates,
+)
 
 ALL_ACTIVITIES: list[Callable[..., Any]] = [
     fetch_bars,
@@ -34,6 +43,13 @@ ALL_ACTIVITIES: list[Callable[..., Any]] = [
     fetch_regime_bars,
     build_regime_snapshot,
     persist_regime,
+    fetch_screen_bars,
+    scan_candidates,
+    persist_candidates,
+    decide_alpha,
+    persist_alpha_result,
+    rejudge_alpha,
+    persist_refresh_result,
 ]
 
 __all__ = [
@@ -42,12 +58,19 @@ __all__ = [
     "build_analysis",
     "build_regime_snapshot",
     "compute_indicators",
+    "decide_alpha",
     "fetch_bars",
     "fetch_regime_bars",
+    "fetch_screen_bars",
     "long_running_step",
+    "persist_alpha_result",
     "persist_analysis",
     "persist_analysis_result",
+    "persist_candidates",
+    "persist_refresh_result",
     "persist_regime",
+    "rejudge_alpha",
     "render_charts",
+    "scan_candidates",
     "synthesize",
 ]

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text, func
+from sqlalchemy import DateTime, Float, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -97,4 +97,49 @@ class RegimeSnapshotRow(Base):
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     overall_state: Mapped[str] = mapped_column(String(48))
     payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ScreenerCandidateRow(Base):
+    """A scanner hit (symbol-keyed for natural dedup + clear/delete). The full
+    ScreenerCandidate is in payload_json; a few columns are queryable."""
+
+    __tablename__ = "screener_candidates"
+
+    symbol: Mapped[str] = mapped_column(String(32), primary_key=True)
+    sector: Mapped[str] = mapped_column(String(32))
+    score: Mapped[float] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(16))
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class AlphaItemRow(Base):
+    """A confirmed alpha opportunity (symbol-keyed). Full AlphaItem (verdict + refs) in
+    payload_json; the underlying TickerAnalysis lives in `analyses` (reused by the UI)."""
+
+    __tablename__ = "alpha_items"
+
+    symbol: Mapped[str] = mapped_column(String(32), primary_key=True)
+    conviction: Mapped[int] = mapped_column(Integer)
+    sector: Mapped[str] = mapped_column(String(32))
+    analysis_generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    payload_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class DowngradedItemRow(Base):
+    """A formerly-alpha name that no longer qualifies (symbol-keyed)."""
+
+    __tablename__ = "downgraded_items"
+
+    symbol: Mapped[str] = mapped_column(String(32), primary_key=True)
+    payload_json: Mapped[str] = mapped_column(Text)
+    downgraded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

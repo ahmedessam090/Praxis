@@ -92,12 +92,13 @@ async def test_regime_end_to_end_deterministic(
     ) as env:
         result = await _run(env, "wf-regime-det")
 
-    # 5 pillars, populated charts, a deterministic confirmed-uptrend read
+    # pillars, populated charts, a deterministic confirmed-uptrend read
     assert {p.key for p in result.pillars} == {
         "primary_trend",
         "supply_demand",
         "breadth",
         "intermarket",
+        "sector_leadership",
         "volatility",
     }
     assert result.overall_state is RegimeState.CONFIRMED_UPTREND

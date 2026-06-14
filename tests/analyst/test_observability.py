@@ -65,11 +65,10 @@ def _enable(monkeypatch: pytest.MonkeyPatch) -> _FakeClient:
 
 
 def test_no_op_without_keys(monkeypatch: pytest.MonkeyPatch) -> None:
-    from ta_assistant.config import get_settings
+    from types import SimpleNamespace
 
-    monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
-    monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
-    get_settings.cache_clear()
+    # Force the "Langfuse disabled" path regardless of any LANGFUSE keys in the local .env.
+    monkeypatch.setattr(obs, "get_settings", lambda: SimpleNamespace(langfuse_enabled=False))
     called = {"n": 0}
     monkeypatch.setattr(obs, "_make_client", lambda: called.__setitem__("n", called["n"] + 1))
     obs.record_llm(name="x", provider="openai", model="gpt-5.2", resp=_openai_resp())
