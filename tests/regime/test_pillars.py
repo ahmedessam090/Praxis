@@ -81,6 +81,32 @@ def test_pillars_always_present() -> None:
     }
 
 
+def test_leadership_pillar_ranks_industries() -> None:
+    # The leadership pillar now ranks industry/thematic groups too, so a ripping semis ETF
+    # surfaces by name (not hidden inside technology).
+    f = _bull_frames()
+    f[U.SPY] = S.make_daily(S.linear(400.0, 0.05, 320))  # SPY mild
+    f["SMH"] = S.make_daily(S.linear(200.0, 1.5, 320))  # semiconductors ripping
+    f["XLK"] = S.make_daily(S.linear(150.0, 0.3, 320))  # tech mildly up
+    pillars, _v = assess(f, _now(f))
+    sec = next(p for p in pillars if p.key == "sector_leadership")
+    assert any(m.key == "sector_semiconductors" for m in sec.metrics)
+    assert "semiconductors" in sec.summary
+
+
+def test_leadership_pillar_flags_overheated() -> None:
+    # A group in a confirmed uptrend that ramps far above its 50-day MA is flagged overheated.
+    f = _bull_frames()
+    f[U.SPY] = S.make_daily(S.linear(400.0, 0.05, 320))
+    closes = [200.0] * 280 + [200.0 + i * 4.0 for i in range(1, 41)]  # climactic ramp at the end
+    f["SMH"] = S.make_daily(closes)
+    pillars, _v = assess(f, _now(f))
+    sec = next(p for p in pillars if p.key == "sector_leadership")
+    smh = next(m for m in sec.metrics if m.key == "sector_semiconductors")
+    assert smh.flag == "overheated"
+    assert "Overheated" in sec.summary
+
+
 def test_liquidity_metric_surfaced_not_known_without_data() -> None:
     f = _bull_frames()  # no credit/dollar/software frames provided
     pillars, _v = assess(f, _now(f))

@@ -122,6 +122,64 @@ export function StatusPill({ status }: { status: string }) {
 }
 
 /**
+ * Badge describing where price sits relative to a setup's trigger, for an alpha verdict /
+ * thesis `action_state`. Mirrors the StatusPill styling (pill, tone-tinted, whitespace-nowrap).
+ * Renders nothing for unknown / "" states. Labels are deliberately descriptive rather than
+ * directive — they report structure, not an action to take. The "extended" state is the
+ * load-bearing one: its amber caution tone makes a stretched entry obvious at a glance. Uses
+ * only existing tokens (bull/bear/brand/muted) plus the amber already in the sector palette.
+ */
+type ActionTone = "bull" | "brand" | "amber" | "bear" | "muted";
+
+const ACTION_STATE_META: Record<string, { label: string; tone: ActionTone }> = {
+  in_range: { label: "In range", tone: "bull" },
+  awaiting_break: { label: "Awaiting break", tone: "brand" },
+  extended: { label: "Past range", tone: "amber" },
+  not_yet: { label: "Forming", tone: "muted" },
+  played_out: { label: "Target reached", tone: "bear" },
+  invalid: { label: "No setup", tone: "muted" },
+};
+
+const ACTION_STATE_PILL: Record<ActionTone, string> = {
+  bull: "bg-bull/15 text-bull border-bull/30",
+  brand: "bg-brand/10 text-brand border-brand/30",
+  amber: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
+  bear: "bg-bear/15 text-bear border-bear/30",
+  muted: "bg-muted/10 text-muted border-border",
+};
+
+const ACTION_STATE_DOT: Record<ActionTone, string> = {
+  bull: "bg-bull",
+  brand: "bg-brand",
+  amber: "bg-amber-500",
+  bear: "bg-bear",
+  muted: "bg-muted",
+};
+
+export function ActionStateBadge({
+  state,
+  className,
+}: {
+  state: string | null | undefined;
+  className?: string;
+}) {
+  const meta = state ? ACTION_STATE_META[state] : undefined;
+  if (!meta) return null;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[11px] font-medium",
+        ACTION_STATE_PILL[meta.tone],
+        className,
+      )}
+    >
+      <span className={cn("h-1.5 w-1.5 rounded-full", ACTION_STATE_DOT[meta.tone])} />
+      {meta.label}
+    </span>
+  );
+}
+
+/**
  * A compact horizontal bar for a 0..100 score, tinted by tone. Used in the candidate
  * table in place of a bare number so relative strength is visible at a glance.
  */

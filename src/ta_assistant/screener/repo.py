@@ -3,9 +3,14 @@ later chunks). Symbol-keyed for natural dedup + clear/delete. Mirrors regime/rep
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from ta_assistant.db.models import AlphaItemRow, DowngradedItemRow, ScreenerCandidateRow
+from ta_assistant.db.models import (
+    AlphaItemRow,
+    DowngradedItemRow,
+    ScreenerCandidateRow,
+    ScreenerGroupRow,
+)
 from ta_assistant.db.session import session_scope
 from ta_assistant.synthesis.schema import (
     AlphaItem,
@@ -13,6 +18,7 @@ from ta_assistant.synthesis.schema import (
     CandidateStatus,
     DowngradedItem,
     ScreenerCandidate,
+    ScreenerGroup,
 )
 
 # --- scanner candidates ---
@@ -29,6 +35,7 @@ def upsert_candidates(cands: list[ScreenerCandidate], db_path: str | None = None
                         sector=c.sector,
                         score=c.score,
                         status=c.status.value,
+                        group_name=c.group,
                         payload_json=c.model_dump_json(),
                     )
                 )
@@ -36,16 +43,71 @@ def upsert_candidates(cands: list[ScreenerCandidate], db_path: str | None = None
                 row.sector = c.sector
                 row.score = c.score
                 row.status = c.status.value
+                row.group_name = c.group
                 row.payload_json = c.model_dump_json()
     return len(cands)
 
 
-def list_candidates(db_path: str | None = None) -> list[ScreenerCandidate]:
+def list_candidates(
+    group: str | None = None, db_path: str | None = None
+) -> list[ScreenerCandidate]:
+    # Most-recently-touched first: a manually-added ticker (and any just-re-evaluated row, since
+    # updated_at auto-bumps on write) lands at the top. Filtered to one group when given.
     with session_scope(db_path) as session:
-        rows = session.execute(
-            select(ScreenerCandidateRow).order_by(ScreenerCandidateRow.score.desc())
-        ).scalars().all()
+        stmt = select(ScreenerCandidateRow).order_by(ScreenerCandidateRow.updated_at.desc())
+        if group is not None:
+            stmt = stmt.where(ScreenerCandidateRow.group_name == group)
+        rows = session.execute(stmt).scalars().all()
         return [ScreenerCandidate.model_validate_json(r.payload_json) for r in rows]
+
+
+# --- scanner groups (custom-groups model) ---
+
+
+def create_group(name: str, kind: str = "custom", db_path: str | None = None) -> None:
+    """Create a named group if it doesn't already exist (idempotent)."""
+    with session_scope(db_path) as session:
+        if session.get(ScreenerGroupRow, name) is None:
+            session.add(ScreenerGroupRow(name=name, kind=kind))
+
+
+def list_groups(db_path: str | None = None) -> list[ScreenerGroup]:
+    """All groups (newest first) with their candidate counts."""
+    with session_scope(db_path) as session:
+        rows = (
+            session.execute(select(ScreenerGroupRow).order_by(ScreenerGroupRow.created_at.desc()))
+            .scalars()
+            .all()
+        )
+        counts: dict[str, int] = {
+            str(name): int(n)
+            for name, n in session.execute(
+                select(ScreenerCandidateRow.group_name, func.count()).group_by(
+                    ScreenerCandidateRow.group_name
+                )
+            ).all()
+        }
+        return [
+            ScreenerGroup(name=r.name, kind=r.kind, count=counts.get(r.name, 0)) for r in rows
+        ]
+
+
+def delete_group(name: str, db_path: str | None = None) -> int:
+    """Delete a group AND its candidates (custom-groups model). Returns candidates removed."""
+    with session_scope(db_path) as session:
+        g = session.get(ScreenerGroupRow, name)
+        if g is not None:
+            session.delete(g)
+        cands = (
+            session.execute(
+                select(ScreenerCandidateRow).where(ScreenerCandidateRow.group_name == name)
+            )
+            .scalars()
+            .all()
+        )
+        for c in cands:
+            session.delete(c)
+        return len(cands)
 
 
 def get_candidate(symbol: str, db_path: str | None = None) -> ScreenerCandidate | None:

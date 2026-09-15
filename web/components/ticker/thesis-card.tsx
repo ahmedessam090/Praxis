@@ -20,6 +20,38 @@ export function ThesisCard({ thesis }: { thesis: TimeframeThesis }) {
   const supporting = thesis.supporting_factors ?? [];
   const priceNotes = thesis.price_notes ?? [];
   const transcript = thesis.transcript ?? [];
+
+  // No clean pattern on this timeframe is a valid, expected outcome — show it explicitly
+  // instead of rendering a forced/blank card.
+  const noPattern =
+    /no clean|no setup/i.test(thesis.pattern_label) ||
+    ((thesis.confidence ?? 0) === 0 && thesis.entry == null && thesis.target == null);
+  if (noPattern) {
+    return (
+      <Card>
+        <CardBody className="pt-5">
+          <div className="rounded-lg border border-dashed border-border bg-surface/40 px-4 py-6 text-center">
+            <div className="text-sm font-medium text-muted">
+              No clear pattern on this timeframe
+            </div>
+            <p className="mt-1 text-xs text-muted">
+              The analyzer found no clean, textbook setup here — and that&apos;s fine.
+            </p>
+            {supporting.length > 0 ? (
+              <p className="mt-3 text-xs text-muted">
+                🧩 Supporting structure: {supporting.join(" · ")}
+              </p>
+            ) : null}
+          </div>
+        </CardBody>
+      </Card>
+    );
+  }
+  // Defining lines (trendlines / curves) that touch real swings — surface the touch count
+  // so the user can see the line is anchored to actual price action, not drawn arbitrarily.
+  const definingLines = (thesis.shapes ?? []).filter(
+    (s) => (s.kind === "trendline" || s.kind === "curve") && (s.touch_count ?? 0) > 0,
+  );
   return (
     <Card>
       <CardBody className="pt-5">
@@ -56,6 +88,19 @@ export function ThesisCard({ thesis }: { thesis: TimeframeThesis }) {
         {priceNotes.length > 0 ? (
           <p className="mt-2 text-xs text-muted">
             Levels: {priceNotes.map((n) => n.label).join("  ·  ")}
+          </p>
+        ) : null}
+
+        {definingLines.length > 0 ? (
+          <p className="mt-2 text-xs text-muted">
+            Defining lines:{" "}
+            {definingLines
+              .map((s) => {
+                const n = s.touch_count ?? 0;
+                const name = s.label || s.role;
+                return `${name} (${n} ${n === 1 ? "touch" : "touches"})`;
+              })
+              .join("  ·  ")}
           </p>
         ) : null}
 

@@ -84,7 +84,8 @@ class NullConsensus:
 
 _SYSTEM = (
     "You are a classical technical-analysis chartist in the Brandt/Minervini tradition, "
-    "LONG side only — you never recommend shorting. You are given ONE timeframe's chart "
+    "LONG side only — short setups are out of scope, and you describe structure rather than "
+    "recommending any action. You are given ONE timeframe's chart "
     "image and a list of CANDIDATE structures a geometry engine already found and "
     "de-duplicated, each with an id, the engine's label, exact levels (breakout/target/"
     "stop), and status. Decide the chart's DOMINANT, currently-actionable big picture. "

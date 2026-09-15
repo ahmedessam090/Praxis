@@ -25,10 +25,33 @@ def test_build_manual_candidate(temp_db: str, monkeypatch: pytest.MonkeyPatch) -
     assert c.factors  # scored like a scanned candidate
 
 
-def test_build_manual_unknown_sector(temp_db: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_manual_resolves_sector_via_lookup(
+    temp_db: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Not in the curated universe -> falls back to the (mocked) yfinance sector lookup.
     monkeypatch.setattr(manual, "get_daily_history", _hist)
-    c = manual.build_manual_candidate("ZZZ", NOW)  # not in the curated universe
+    monkeypatch.setattr(manual, "get_sector", lambda sym: "technology")
+    c = manual.build_manual_candidate("AMKR", NOW)
+    assert c is not None and c.sector == "technology"  # resolved, not "unknown"
+
+
+def test_build_manual_unknown_sector(temp_db: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Curated map misses AND the lookup also fails -> only then "unknown".
+    monkeypatch.setattr(manual, "get_daily_history", _hist)
+    monkeypatch.setattr(manual, "get_sector", lambda sym: None)
+    c = manual.build_manual_candidate("ZZZ", NOW)
     assert c is not None and c.symbol == "ZZZ" and c.sector == "unknown"
+
+
+def test_map_yf_sector() -> None:
+    from ta_assistant.data.yf import _map_yf_sector
+
+    assert _map_yf_sector("Technology") == "technology"
+    assert _map_yf_sector("Consumer Cyclical") == "discretionary"
+    assert _map_yf_sector("financial-services") == "financials"
+    assert _map_yf_sector("Healthcare") == "health"
+    assert _map_yf_sector("real-estate") == "real_estate"
+    assert _map_yf_sector("") is None and _map_yf_sector("Nonexistent") is None
 
 
 def test_build_manual_unfetchable(temp_db: str, monkeypatch: pytest.MonkeyPatch) -> None:

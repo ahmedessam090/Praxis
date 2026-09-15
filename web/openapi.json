@@ -440,18 +440,151 @@
           "screener"
         ],
         "summary": "Scan",
+        "description": "Rally-screen: shallow-screen the rallying sectors and drop the hits into a group. The\ngroup name is auto-generated when not given; the persist activity creates the group.",
         "operationId": "scan_api_screener_scan_post",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Group"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
+                  "type": "object",
                   "additionalProperties": {
                     "type": "string"
                   },
-                  "type": "object",
                   "title": "Response Scan Api Screener Scan Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/screener/groups": {
+      "get": {
+        "tags": [
+          "screener"
+        ],
+        "summary": "Groups",
+        "operationId": "groups_api_screener_groups_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ScreenerGroup"
+                  },
+                  "type": "array",
+                  "title": "Response Groups Api Screener Groups Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "screener"
+        ],
+        "summary": "Create Group",
+        "operationId": "create_group_api_screener_groups_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateGroupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScreenerGroup"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/screener/groups/{name}": {
+      "delete": {
+        "tags": [
+          "screener"
+        ],
+        "summary": "Delete Group",
+        "operationId": "delete_group_api_screener_groups__name__delete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Delete Group Api Screener Groups  Name  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -466,17 +599,45 @@
         ],
         "summary": "Candidates",
         "operationId": "candidates_api_screener_candidates_get",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Group"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
+                  "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/ScreenerCandidate"
                   },
-                  "type": "array",
                   "title": "Response Candidates Api Screener Candidates Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -488,17 +649,17 @@
           "screener"
         ],
         "summary": "Add Candidate",
-        "description": "Manually add a ticker: validate + score it like a scanned candidate.",
+        "description": "Manually add a ticker (into a group when given): validate + score it like a scan hit.",
         "operationId": "add_candidate_api_screener_candidates_post",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/AddRequest"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -535,11 +696,55 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "type": "object",
                   "additionalProperties": {
                     "type": "integer"
                   },
-                  "type": "object",
                   "title": "Response Clear Candidates Api Screener Candidates Delete"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/screener/ai-pick": {
+      "post": {
+        "tags": [
+          "screener"
+        ],
+        "summary": "Ai Pick",
+        "description": "AI pick: describe what you want; the LLM proposes liquid good-performers, each validated\nby a real data fetch + shallow-scored, dropped into a group. No-op without an LLM key.",
+        "operationId": "ai_pick_api_screener_ai_pick_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiPickRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Ai Pick Api Screener Ai Pick Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -787,6 +992,11 @@
           "symbol": {
             "type": "string",
             "title": "Symbol"
+          },
+          "group": {
+            "type": "string",
+            "title": "Group",
+            "default": ""
           }
         },
         "type": "object",
@@ -794,6 +1004,29 @@
           "symbol"
         ],
         "title": "AddRequest"
+      },
+      "AiPickRequest": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "group": {
+            "type": "string",
+            "title": "Group",
+            "default": ""
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit",
+            "default": 10
+          }
+        },
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "title": "AiPickRequest"
       },
       "AlphaItem": {
         "properties": {
@@ -957,6 +1190,11 @@
           "inputs": {
             "type": "string",
             "title": "Inputs",
+            "default": ""
+          },
+          "action_state": {
+            "type": "string",
+            "title": "Action State",
             "default": ""
           }
         },
@@ -1147,6 +1385,19 @@
           "ts"
         ],
         "title": "ChartMarker"
+      },
+      "CreateGroupRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "CreateGroupRequest"
       },
       "DetectedPattern": {
         "properties": {
@@ -1721,7 +1972,7 @@
           "cash"
         ],
         "title": "LongPosture",
-        "description": "What the regime implies for new long swing exposure."
+        "description": "How historically hospitable the regime has been to new long swing exposure.\n\nA characterisation of market conditions, not a recommended course of action."
       },
       "NoteSeverity": {
         "type": "string",
@@ -1927,6 +2178,11 @@
               }
             ],
             "title": "Numeric"
+          },
+          "flag": {
+            "type": "string",
+            "title": "Flag",
+            "default": ""
           }
         },
         "type": "object",
@@ -2167,6 +2423,11 @@
             "title": "Source",
             "default": "screen"
           },
+          "group": {
+            "type": "string",
+            "title": "Group",
+            "default": ""
+          },
           "generated_at": {
             "type": "string",
             "format": "date-time",
@@ -2191,6 +2452,30 @@
         ],
         "title": "ScreenerCandidate",
         "description": "A scanner hit \u2014 a ticker that MIGHT have a good trade (cheap pre-screen, not yet\nthe full agent analysis). The user selects these to push into the alpha pipeline.\nOnce evaluated, it carries the agent's verdict (reasons + the inputs it saw)."
+      },
+      "ScreenerGroup": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind",
+            "default": "custom"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ScreenerGroup",
+        "description": "A named scanner group (a bucket of candidates). kind: custom | scan | ai."
       },
       "Shape": {
         "properties": {
@@ -2224,6 +2509,28 @@
               }
             ],
             "title": "Color"
+          },
+          "touch_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Touch Count"
+          },
+          "fit_residual": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fit Residual"
           }
         },
         "type": "object",
@@ -2491,6 +2798,33 @@
               }
             ],
             "title": "Rr Ratio"
+          },
+          "action_state": {
+            "type": "string",
+            "title": "Action State",
+            "default": ""
+          },
+          "trigger_zone_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger Zone Low"
+          },
+          "trigger_zone_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger Zone High"
           },
           "shapes": {
             "items": {

@@ -13,6 +13,7 @@ import logging
 
 from ta_assistant.analyst.prompts import ALPHA_REFRESH_SYSTEM, ALPHA_SYSTEM
 from ta_assistant.analyst.provider import LLMAnalyst
+from ta_assistant.patterns.action_state import ActionState, action_state, normalize_state
 from ta_assistant.synthesis.schema import (
     AlphaReason,
     AlphaVerdict,
@@ -31,6 +32,57 @@ logger = logging.getLogger(__name__)
 _RISK_ON = {RegimeState.CONFIRMED_UPTREND, RegimeState.UPTREND_UNDER_PRESSURE}
 _OK_POSTURE = {LongPosture.AGGRESSIVE, LongPosture.SELECTIVE}
 
+# A formed setup with a live trigger. Forming (NOT_YET), played-out, and incoherent (INVALID)
+# do NOT count toward alpha.
+_TRADEABLE_STATES = {
+    ActionState.IN_RANGE.value,
+    ActionState.AWAITING_BREAK.value,
+    ActionState.EXTENDED.value,
+}
+_STATE_PHRASE = {
+    ActionState.IN_RANGE.value: "broke the pivot — price still inside the trigger range",
+    ActionState.AWAITING_BREAK.value: "base complete — price still below the pivot",
+    ActionState.EXTENDED.value: "past the trigger range, target not yet reached",
+    ActionState.NOT_YET.value: "still forming — no defined trigger yet",
+    ActionState.PLAYED_OUT.value: "already played out (target reached)",
+    ActionState.INVALID.value: "no coherent setup",
+}
+
+# ALPHA is 100% dependent on a CLEAN, formed, tradeable pattern: a strong uptrend with no
+# clean pattern is NOT alpha. These mark the analyzer's "no clean pattern" sentinels + the
+# minimum thesis confidence that counts as a real pattern.
+_NO_SETUP_LABELS = {"no clean setup", "no clean long setup", "no setup", "unidentified"}
+_MIN_PATTERN_CONF = 0.5
+
+
+def _has_clean_pattern(th: TimeframeThesis | None, state: str) -> bool:
+    """A real, clean, tradeable chart pattern — the hard prerequisite for alpha."""
+    return bool(
+        th
+        and th.entry is not None
+        and th.pattern_label.strip().lower() not in _NO_SETUP_LABELS
+        and th.confidence >= _MIN_PATTERN_CONF
+        and state in _TRADEABLE_STATES
+    )
+
+
+def _thesis_state(th: TimeframeThesis | None, ind: IndicatorSnapshot | None) -> str:
+    """The setup's life-cycle state — prefer the value stamped at analysis time, recompute from
+    levels only when it's missing (e.g. a thesis cached before action_state existed). Stamped
+    values are normalised, so theses persisted under the old vocabulary still resolve."""
+    if th is None:
+        return ""
+    if th.action_state:
+        return normalize_state(th.action_state)
+    atr_abs = (
+        ind.atr_pct / 100.0 * ind.close if ind and ind.atr_pct and ind.close else None
+    )
+    last = ind.close if ind and ind.close else 0.0
+    state, _, _ = action_state(
+        th.entry, th.breakout, th.target, th.stop, th.status.value, last, atr_abs
+    )
+    return state.value
+
 
 # --------------------------------------------------------------------------- fact extraction
 
@@ -47,9 +99,12 @@ def _best_thesis(analysis: TickerAnalysis) -> TimeframeThesis | None:
     bulls = [t for t in analysis.theses if t.direction == "bullish"]
     if not bulls:
         return None
+    # Prefer a FORMED + currently-actionable setup over a still-forming / played-out one, then
+    # over having complete levels, then by confidence.
     return max(
         bulls,
         key=lambda t: (
+            t.action_state in _TRADEABLE_STATES,
             t.entry is not None and t.target is not None and t.stop is not None,
             t.confidence,
         ),
@@ -98,10 +153,16 @@ def build_alpha_digest(
     lines.append("")
     lines.append("## Per-timeframe theses")
     for t in analysis.theses:
+        zone = (
+            f" trigger_range={t.trigger_zone_low:.2f}-{t.trigger_zone_high:.2f}"
+            if t.trigger_zone_low is not None and t.trigger_zone_high is not None
+            else ""
+        )
         lines.append(
             f"- {t.timeframe.value}: {t.pattern_label} ({t.status.value}, {t.direction}, "
             f"conf {t.confidence:.2f}) entry={t.entry} breakout={t.breakout} "
-            f"target={t.target} stop={t.stop} rr={t.rr_ratio}"
+            f"target={t.target} stop={t.stop} rr={t.rr_ratio} "
+            f"state={t.action_state or 'n/a'}{zone}"
         )
         if t.supporting_factors:
             lines.append(f"    supporting: {', '.join(t.supporting_factors)}")
@@ -189,16 +250,19 @@ def _gate(
         )
     )
 
-    tradeable = bool(
-        th and th.entry is not None and th.status.value in ("forming", "confirmed", "triggered")
-    )
+    # ALPHA REQUIRES a CLEAN, formed, tradeable pattern (the MU/no-pattern cases). A strong
+    # uptrend with no clean pattern is NOT alpha — `tradeable` is this hard prerequisite.
+    state = _thesis_state(th, ind)
+    tradeable = _has_clean_pattern(th, state)
     reasons.append(
         AlphaReason(
             category="Pattern",
             detail=(
-                f"{th.pattern_label} ({th.status.value})" if th else "no actionable setup / trigger"
+                f"{th.pattern_label} ({_STATE_PHRASE.get(state, th.status.value)})"
+                if tradeable and th is not None
+                else "No clean tradeable pattern — not alpha (a strong uptrend alone is not enough)"
             ),
-            status=Bias.BULLISH if tradeable else Bias.NEUTRAL,
+            status=Bias.BULLISH if tradeable else Bias.BEARISH,
         )
     )
 
@@ -306,6 +370,7 @@ def _gate(
             f"actionable setup {'OK' if tradeable else 'no'} (deterministic)."
         ),
         source="deterministic",
+        action_state=state,
     )
 
 
@@ -388,6 +453,8 @@ def decide_alpha_verdict(
         if raw:
             logger.warning("alpha LLM output unparseable; using deterministic gate")
         verdict = _gate(analysis, regime, sector, ss)
+    if not verdict.action_state:  # LLM verdicts don't compute it — stamp from the surfaced setup
+        verdict.action_state = _thesis_state(_best_thesis(analysis), _daily_ind(analysis))
     verdict.inputs = digest
     return verdict
 
@@ -415,5 +482,7 @@ def rejudge_alpha_verdict(
     verdict = _parse(raw, new_analysis.symbol, sector) if raw else None
     if verdict is None:
         verdict = _gate(new_analysis, regime, sector, ss)
+    if not verdict.action_state:
+        verdict.action_state = _thesis_state(_best_thesis(new_analysis), _daily_ind(new_analysis))
     verdict.inputs = digest
     return verdict

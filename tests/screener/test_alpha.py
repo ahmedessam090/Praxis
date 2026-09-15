@@ -42,10 +42,12 @@ def _analysis(
     pfh: float | None = None,
     rr: float | None = None,
     weekly_below_200w: bool = False,
+    status: PatternStatus = PatternStatus.CONFIRMED,
+    close: float = 100.0,
 ) -> TickerAnalysis:
     ind = IndicatorSnapshot(
         timeframe=Timeframe.DAILY,
-        close=100.0,
+        close=close,
         sma50=90.0 if strong else 105.0,
         sma150=80.0 if strong else 110.0,
         sma200=70.0 if strong else 120.0,
@@ -58,7 +60,7 @@ def _analysis(
     th = TimeframeThesis(
         timeframe=Timeframe.DAILY,
         pattern_label="ascending triangle",
-        status=PatternStatus.CONFIRMED,
+        status=status,
         direction="bullish",
         confidence=0.8,
         entry=100.0,
@@ -114,6 +116,59 @@ def test_deterministic_gate_not_alpha() -> None:
     v = decide_alpha_verdict(_analysis(False), _regime(False), "technology", _Fake(""))
     assert v.source == "deterministic" and not v.is_alpha
     assert v.conviction < 50
+
+
+def test_no_clean_pattern_is_not_alpha_even_when_rallying() -> None:
+    # Strong Stage-2 trend + risk-on regime, but the best thesis is "no clean setup" — NOT alpha.
+    a = _analysis(True)  # trend-template passes, regime is risk-on
+    a.theses = [
+        TimeframeThesis(
+            timeframe=Timeframe.DAILY,
+            pattern_label="no clean setup",
+            status=PatternStatus.FORMING,
+            direction="bullish",
+            confidence=0.0,
+        )
+    ]
+    v = decide_alpha_verdict(a, _regime(True), "technology", _Fake(""))
+    assert not v.is_alpha  # a strong uptrend with no clean pattern is not enough
+    pat = next(r for r in v.reasons if r.category == "Pattern")
+    assert "No clean tradeable pattern" in pat.detail
+
+
+def test_confirmed_setup_is_awaiting_break_alpha() -> None:
+    v = decide_alpha_verdict(_analysis(True), _regime(True), "technology", _Fake(""))
+    assert v.is_alpha and v.action_state == "awaiting_break"
+
+
+def test_forming_pattern_is_not_alpha() -> None:
+    # A still-forming structure no longer counts as a tradeable setup.
+    v = decide_alpha_verdict(
+        _analysis(True, status=PatternStatus.FORMING), _regime(True), "technology", _Fake("")
+    )
+    assert not v.is_alpha and v.action_state == "not_yet"
+
+
+def test_extended_setup_stays_alpha_but_flagged() -> None:
+    # Triggered, run past the trigger range (close 120, target 130) — still alpha, flagged extended.
+    v = decide_alpha_verdict(
+        _analysis(True, status=PatternStatus.TRIGGERED, close=120.0),
+        _regime(True),
+        "technology",
+        _Fake(""),
+    )
+    assert v.is_alpha and v.action_state == "extended"
+
+
+def test_played_out_setup_is_not_alpha() -> None:
+    # Price already at/through the target (130) — the move is done.
+    v = decide_alpha_verdict(
+        _analysis(True, status=PatternStatus.TRIGGERED, close=130.0),
+        _regime(True),
+        "technology",
+        _Fake(""),
+    )
+    assert not v.is_alpha and v.action_state == "played_out"
 
 
 def test_unknown_sector_does_not_block_alpha() -> None:

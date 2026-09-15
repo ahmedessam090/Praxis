@@ -13,7 +13,8 @@ from datetime import datetime
 from temporalio import activity
 
 from ta_assistant.analyst.cache import cache_get, cache_put, content_hash
-from ta_assistant.analyst.prompts import ALPHA_RULES_VERSION, PROMPT_VERSION
+from ta_assistant.analyst.pattern_judge import judge_patterns
+from ta_assistant.analyst.prompts import ALPHA_RULES_VERSION, JUDGE_RULES_VERSION, PROMPT_VERSION
 from ta_assistant.analyst.provider import get_analyst
 from ta_assistant.config import Settings, get_settings
 from ta_assistant.data.bars_repo import load_bars, upsert_bars
@@ -113,10 +114,18 @@ async def scan_candidates(now_iso: str) -> list[ScreenerCandidate]:
     return await asyncio.to_thread(_scan, now_iso)
 
 
+def _persist(cands: list[ScreenerCandidate], group: str) -> int:
+    if group:  # rally-screen results land in a named group the user can review
+        repo.create_group(group, kind="scan")
+        for c in cands:
+            c.group = group
+    return repo.upsert_candidates(cands)
+
+
 @activity.defn
-async def persist_candidates(cands: list[ScreenerCandidate]) -> int:
-    """Idempotently upsert the scanned candidates; returns the count persisted."""
-    return await asyncio.to_thread(repo.upsert_candidates, cands)
+async def persist_candidates(cands: list[ScreenerCandidate], group: str = "") -> int:
+    """Idempotently upsert the scanned candidates (into `group` when given); count persisted."""
+    return await asyncio.to_thread(_persist, cands, group)
 
 
 # --- alpha pipeline (agent2) ---
@@ -171,14 +180,15 @@ def _decide(analysis: TickerAnalysis) -> AlphaVerdict:
             "model": _model_name(settings),
             "prompt": PROMPT_VERSION,
             "alpha_rules": ALPHA_RULES_VERSION,
+            "judge_rules": JUDGE_RULES_VERSION,
         }
     )
     cached = cache_get(fp, AlphaVerdict)
     if cached is not None and cached.source == "llm":
         return cached
-    verdict = decide_alpha_verdict(
-        analysis, regime, sector, get_analyst(settings), sector_status=ss
-    )
+    analyst = get_analyst(settings)
+    judge_patterns(analysis, analyst)  # vet the surfaced setup; demote an illegitimate one
+    verdict = decide_alpha_verdict(analysis, regime, sector, analyst, sector_status=ss)
     if verdict.source == "llm":
         cache_put(fp, _model_name(settings), verdict)
     return verdict
@@ -236,6 +246,7 @@ def _rejudge(new_analysis: TickerAnalysis) -> AlphaVerdict:
     regime = latest_regime()
     ss = _fresh_sector_status(sector)
     analyst = get_analyst(settings)
+    judge_patterns(new_analysis, analyst)  # vet the surfaced setup; demote an illegitimate one
     existing = repo.get_alpha(new_analysis.symbol)
     if existing is None:  # not on the list yet — treat as a fresh decision
         return decide_alpha_verdict(new_analysis, regime, sector, analyst, sector_status=ss)

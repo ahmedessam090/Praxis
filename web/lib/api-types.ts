@@ -212,9 +212,48 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Scan */
+        /**
+         * Scan
+         * @description Rally-screen: shallow-screen the rallying sectors and drop the hits into a group. The
+         *     group name is auto-generated when not given; the persist activity creates the group.
+         */
         post: operations["scan_api_screener_scan_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/screener/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Groups */
+        get: operations["groups_api_screener_groups_get"];
+        put?: never;
+        /** Create Group */
+        post: operations["create_group_api_screener_groups_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/screener/groups/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Group */
+        delete: operations["delete_group_api_screener_groups__name__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -232,11 +271,32 @@ export interface paths {
         put?: never;
         /**
          * Add Candidate
-         * @description Manually add a ticker: validate + score it like a scanned candidate.
+         * @description Manually add a ticker (into a group when given): validate + score it like a scan hit.
          */
         post: operations["add_candidate_api_screener_candidates_post"];
         /** Clear Candidates */
         delete: operations["clear_candidates_api_screener_candidates_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/screener/ai-pick": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ai Pick
+         * @description AI pick: describe what you want; the LLM proposes liquid good-performers, each validated
+         *     by a real data fetch + shallow-scored, dropped into a group. No-op without an LLM key.
+         */
+        post: operations["ai_pick_api_screener_ai_pick_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -352,6 +412,26 @@ export interface components {
         AddRequest: {
             /** Symbol */
             symbol: string;
+            /**
+             * Group
+             * @default
+             */
+            group: string;
+        };
+        /** AiPickRequest */
+        AiPickRequest: {
+            /** Query */
+            query: string;
+            /**
+             * Group
+             * @default
+             */
+            group: string;
+            /**
+             * Limit
+             * @default 10
+             */
+            limit: number;
         };
         /**
          * AlphaItem
@@ -446,6 +526,11 @@ export interface components {
              * @default
              */
             inputs: string;
+            /**
+             * Action State
+             * @default
+             */
+            action_state: string;
         };
         /** AnalysisSummary */
         AnalysisSummary: {
@@ -527,6 +612,11 @@ export interface components {
              * @default circle
              */
             shape: string;
+        };
+        /** CreateGroupRequest */
+        CreateGroupRequest: {
+            /** Name */
+            name: string;
         };
         /** DetectedPattern */
         DetectedPattern: {
@@ -738,7 +828,9 @@ export interface components {
         };
         /**
          * LongPosture
-         * @description What the regime implies for new long swing exposure.
+         * @description How historically hospitable the regime has been to new long swing exposure.
+         *
+         *     A characterisation of market conditions, not a recommended course of action.
          * @enum {string}
          */
         LongPosture: "aggressive" | "selective" | "defensive" | "cash";
@@ -850,6 +942,11 @@ export interface components {
             source_tag: string;
             /** Numeric */
             numeric?: number | null;
+            /**
+             * Flag
+             * @default
+             */
+            flag: string;
         };
         /**
          * RegimePillar
@@ -999,11 +1096,34 @@ export interface components {
              */
             source: string;
             /**
+             * Group
+             * @default
+             */
+            group: string;
+            /**
              * Generated At
              * Format: date-time
              */
             generated_at: string;
             verdict?: components["schemas"]["AlphaVerdict"] | null;
+        };
+        /**
+         * ScreenerGroup
+         * @description A named scanner group (a bucket of candidates). kind: custom | scan | ai.
+         */
+        ScreenerGroup: {
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @default custom
+             */
+            kind: string;
+            /**
+             * Count
+             * @default 0
+             */
+            count: number;
         };
         /** Shape */
         Shape: {
@@ -1022,6 +1142,10 @@ export interface components {
             role: string;
             /** Color */
             color?: string | null;
+            /** Touch Count */
+            touch_count?: number | null;
+            /** Fit Residual */
+            fit_residual?: number | null;
         };
         /**
          * ShapeKind
@@ -1137,6 +1261,15 @@ export interface components {
             stop?: number | null;
             /** Rr Ratio */
             rr_ratio?: number | null;
+            /**
+             * Action State
+             * @default
+             */
+            action_state: string;
+            /** Trigger Zone Low */
+            trigger_zone_low?: number | null;
+            /** Trigger Zone High */
+            trigger_zone_high?: number | null;
             /** Shapes */
             shapes?: components["schemas"]["Shape"][];
             /** Price Notes */
@@ -1488,7 +1621,9 @@ export interface operations {
     };
     scan_api_screener_scan_post: {
         parameters: {
-            query?: never;
+            query?: {
+                group?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1506,9 +1641,18 @@ export interface operations {
                     };
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
-    candidates_api_screener_candidates_get: {
+    groups_api_screener_groups_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -1523,7 +1667,104 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/json": components["schemas"]["ScreenerGroup"][];
+                };
+            };
+        };
+    };
+    create_group_api_screener_groups_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenerGroup"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_group_api_screener_groups__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: number;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    candidates_api_screener_candidates_get: {
+        parameters: {
+            query?: {
+                group?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
                     "application/json": components["schemas"]["ScreenerCandidate"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1579,6 +1820,41 @@ export interface operations {
                     "application/json": {
                         [key: string]: number;
                     };
+                };
+            };
+        };
+    };
+    ai_pick_api_screener_ai_pick_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiPickRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

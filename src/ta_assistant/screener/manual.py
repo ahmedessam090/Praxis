@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from ta_assistant.data.bars_repo import load_bars, upsert_bars
-from ta_assistant.data.providers import get_daily_history
+from ta_assistant.data.providers import get_daily_history, get_sector
 from ta_assistant.regime import universe as RU
 from ta_assistant.screener import universe as SU
 from ta_assistant.screener.favour import score_ticker
@@ -16,7 +16,9 @@ from ta_assistant.synthesis.schema import ScreenerCandidate, ScreenFactor
 _HISTORY = 820
 
 
-def build_manual_candidate(symbol: str, now: datetime) -> ScreenerCandidate | None:
+def build_manual_candidate(
+    symbol: str, now: datetime, group: str = "", cand_source: str = "manual"
+) -> ScreenerCandidate | None:
     sym = symbol.strip().upper()
     if not sym:
         return None
@@ -42,11 +44,15 @@ def build_manual_candidate(symbol: str, now: datetime) -> ScreenerCandidate | No
     factors: list[ScreenFactor] = []
     if len(spy) > 0 and len(df) >= 200:
         score, factors, _ = score_ticker(df, spy)
+    # Curated map first (no network); fall back to a multi-try yfinance lookup so a ticker
+    # outside the curated universe still gets its real GICS sector instead of "unknown".
+    sector = SU.sector_of(sym) or get_sector(sym) or "unknown"
     return ScreenerCandidate(
         symbol=sym,
-        sector=SU.sector_of(sym) or "unknown",
+        sector=sector,
         score=round(score, 2),
         factors=factors,
-        source="manual",
+        source=cand_source,
+        group=group,
         generated_at=now,
     )

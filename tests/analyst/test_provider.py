@@ -14,6 +14,8 @@ from ta_assistant.analyst.provider import (
     AnthropicAnalyst,
     NullAnalyst,
     OpenAIAnalyst,
+    _build_thesis,
+    _parse_shapes,
     deterministic_thesis,
     get_analyst,
     textbookize,
@@ -105,7 +107,7 @@ def _sane_submit(ctx: ToolContext) -> dict:
         "direction": "bullish",
         "confidence": 0.82,
         "breakout": 100.0,
-        "target": 115.0,
+        "target": 130.0,  # above the fixture's last close (115) so it isn't "played out"
         "stop": 92.0,
         "shapes": [
             {
@@ -117,7 +119,7 @@ def _sane_submit(ctx: ToolContext) -> dict:
                 "role": "resistance",
             }
         ],
-        "price_notes": [{"price": 115.0, "label": "Target 115", "kind": "target"}],
+        "price_notes": [{"price": 130.0, "label": "Target 130", "kind": "target"}],
         "rationale": "flat resistance ~100, rising lows",
     }
 
@@ -182,6 +184,110 @@ def test_openai_loop_validate_and_retry() -> None:
     assert res.thesis is not None and res.thesis.stop == 92.0
     # the transcript shows two submit attempts (the validate-and-retry loop)
     assert sum("submit_thesis" in t for t in res.thesis.transcript) == 2
+
+
+def test_mu_incoherent_entry_rejected() -> None:
+    # The MU bug: breakout-based levels are ordered fine, but the re-break ENTRY sits above the
+    # target -> must be bounced, then accepted on a coherent resubmit.
+    ctx = _ctx()
+    bad = _sane_submit(ctx) | {"breakout": 820.0, "stop": 800.0, "target": 1043.0, "entry": 1091.0}
+    script = [
+        [("submit_thesis", bad)],  # turn 1: entry 1091 > target 1043 -> rejected
+        [("submit_thesis", _sane_submit(ctx))],  # turn 2: coherent -> accepted
+    ]
+    analyst = OpenAIAnalyst("k", "m", client=_FakeOpenAI(script))
+    res = analyst.run_thesis_loop(
+        user_text="x", image_paths=[], tool_ctx=ctx, timeframe=Timeframe.DAILY
+    )
+    assert res.source == "llm" and res.thesis is not None
+    th = res.thesis
+    assert th.stop < th.entry < th.target and (th.rr_ratio or 0) > 0  # coherent
+    assert sum("submit_thesis" in t for t in th.transcript) == 2  # bounced once
+
+
+def test_no_clean_setup_submission_accepted() -> None:
+    # The chartist may conclude there's NO clean pattern — a confidence-0, no-levels submission
+    # must be accepted (not forced to retry into a fabricated pattern).
+    ctx = _ctx()
+    nopat = {
+        "pattern_label": "no clean setup",
+        "confidence": 0,
+        "status": "forming",
+        "direction": "bullish",
+    }
+    analyst = OpenAIAnalyst("k", "m", client=_FakeOpenAI([[("submit_thesis", nopat)]]))
+    res = analyst.run_thesis_loop(
+        user_text="x", image_paths=[], tool_ctx=ctx, timeframe=Timeframe.DAILY
+    )
+    assert res.source == "llm" and res.thesis is not None
+    assert res.thesis.pattern_label == "no clean setup" and res.thesis.confidence == 0
+    assert res.thesis.entry is None and res.thesis.target is None
+
+
+def test_played_out_target_is_rejected() -> None:
+    # Fixture last close is 115; a target at/under it has already played out -> bounced.
+    ctx = _ctx()
+    played = _sane_submit(ctx) | {"breakout": 100.0, "stop": 92.0, "target": 110.0}
+    script = [
+        [("submit_thesis", played)],  # target 110 <= last close 115 -> rejected
+        [("submit_thesis", _sane_submit(ctx))],  # upside left -> accepted
+    ]
+    analyst = OpenAIAnalyst("k", "m", client=_FakeOpenAI(script))
+    res = analyst.run_thesis_loop(
+        user_text="x", image_paths=[], tool_ctx=ctx, timeframe=Timeframe.DAILY
+    )
+    assert res.thesis is not None and res.thesis.target == 130.0
+    assert sum("submit_thesis" in t for t in res.thesis.transcript) == 2
+
+
+def test_parse_shapes_scores_a_real_line() -> None:
+    # The fixture has flat-top highs at ~100; a resistance line there should touch them.
+    ctx = _ctx()
+    raw = [
+        {
+            "kind": "trendline",
+            "points": [
+                {"ts": _ts(ctx, 10), "price": 100.0},
+                {"ts": _ts(ctx, 50), "price": 100.0},
+            ],
+            "role": "resistance",
+        }
+    ]
+    shapes = _parse_shapes(raw, ctx)
+    assert len(shapes) == 1
+    assert shapes[0].touch_count is not None and shapes[0].touch_count >= 2
+
+
+def test_parse_shapes_drops_phantom_line() -> None:
+    # A line anchored to a price no swing ever reached touches nothing real -> dropped.
+    ctx = _ctx()
+    raw = [
+        {
+            "kind": "trendline",
+            "points": [
+                {"ts": _ts(ctx, 10), "price": 9999.0},
+                {"ts": _ts(ctx, 50), "price": 9999.0},
+            ],
+            "role": "resistance",
+        }
+    ]
+    assert _parse_shapes(raw, ctx) == []
+
+
+def test_build_thesis_repairs_stray_entry() -> None:
+    # Defensive belt: if a stray entry above target reaches _build_thesis, snap it to breakout.
+    ctx = _ctx()
+    inp = {
+        "pattern_label": "ascending triangle",
+        "direction": "bullish",
+        "breakout": 100.0,
+        "target": 120.0,
+        "stop": 90.0,
+        "entry": 130.0,  # incoherent
+    }
+    th = _build_thesis(inp, ctx, Timeframe.DAILY, [])
+    assert th.entry == 100.0  # snapped to the breakout pivot
+    assert th.rr_ratio is not None and th.rr_ratio > 0
 
 
 def _seed_hns() -> DetectedPattern:

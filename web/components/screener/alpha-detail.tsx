@@ -44,7 +44,12 @@ export function AlphaDetail({ item, onBack }: { item: AlphaItem; onBack: () => v
         </GhostButton>
       </div>
 
-      <AlphaVerdictCard verdict={item.verdict} />
+      <AlphaVerdictCard
+        verdict={item.verdict}
+        triggerZone={
+          thesis ? { low: thesis.trigger_zone_low, high: thesis.trigger_zone_high } : undefined
+        }
+      />
 
       {hasLevelsOrGaps ? (
         <Card>

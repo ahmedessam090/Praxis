@@ -2,7 +2,8 @@
 
 This is what AnalyzeTickerWorkflow returns and the UI renders; it round-trips
 through Temporal's pydantic data converter and is stored in Analysis.payload_json.
-Kept import-light (no pandas/patterns imports) so it's cheap everywhere.
+Kept import-light so it's cheap everywhere: no pandas, and the only `patterns` import is
+`action_state`, which is itself stdlib+pydantic only.
 """
 
 from __future__ import annotations
@@ -11,6 +12,8 @@ from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
+
+from ta_assistant.patterns.action_state import ActionStateStr
 
 
 class Timeframe(StrEnum):
@@ -157,6 +160,10 @@ class Shape(BaseModel):
     # primary|secondary|cap|support|resistance|neckline|target|stop|entry
     role: str = "primary"
     color: str | None = None  # optional; renderer maps role->color when None
+    # Line legitimacy (for trendline/neckline/rail shapes): how many real swings the line
+    # actually touches and the worst residual among them — so the user can match the line.
+    touch_count: int | None = None
+    fit_residual: float | None = None
 
 
 class PriceNote(BaseModel):
@@ -181,6 +188,13 @@ class TimeframeThesis(BaseModel):
     target2: float | None = None
     stop: float | None = None
     rr_ratio: float | None = None
+
+    # Life-cycle: where price sits relative to the measured trigger — awaiting the break, in
+    # range, extended past it, or played out. Descriptive only; see patterns/action_state.py.
+    # (Empty string means "not yet computed".)
+    action_state: ActionStateStr = ""
+    trigger_zone_low: float | None = None
+    trigger_zone_high: float | None = None
 
     shapes: list[Shape] = Field(default_factory=list)
     price_notes: list[PriceNote] = Field(default_factory=list)
@@ -253,12 +267,15 @@ class RegimeState(StrEnum):
 
 
 class LongPosture(StrEnum):
-    """What the regime implies for new long swing exposure."""
+    """How historically hospitable the regime has been to new long swing exposure.
 
-    AGGRESSIVE = "aggressive"  # buy breakouts, full exposure
-    SELECTIVE = "selective"  # only A+ setups, reduce size
-    DEFENSIVE = "defensive"  # raise cash, no new buys
-    CASH = "cash"  # stand aside
+    A characterisation of market conditions, not a recommended course of action.
+    """
+
+    AGGRESSIVE = "aggressive"  # breakouts have tended to work; broad participation
+    SELECTIVE = "selective"  # mixed — only the cleanest structures have held
+    DEFENSIVE = "defensive"  # breakouts mostly failing; distribution present
+    CASH = "cash"  # no constructive long structure in the tape
 
 
 class RegimeMetric(BaseModel):
@@ -271,6 +288,7 @@ class RegimeMetric(BaseModel):
     detail: str = ""  # one-line interpretation
     source_tag: str = ""  # the authority/book, e.g. "Dow Theory", "O'Neil"
     numeric: float | None = None  # optional raw value (for sorting/thresholds)
+    flag: str = ""  # optional extra state beyond status, e.g. "overheated" (rallying too high)
 
 
 class RegimePillar(BaseModel):
@@ -384,6 +402,9 @@ class AlphaVerdict(BaseModel):
     summary: str = ""
     source: str = "deterministic"  # "llm" | "deterministic"
     inputs: str = ""  # the exact digest of facts the agent was given (for auditing)
+    # Where the surfaced setup sits vs its trigger:
+    # awaiting_break | in_range | extended | not_yet | played_out | invalid.
+    action_state: ActionStateStr = ""
 
 
 class CandidateStatus(StrEnum):
@@ -403,9 +424,18 @@ class ScreenerCandidate(BaseModel):
     score: float = 0.0
     status: CandidateStatus = CandidateStatus.PENDING
     factors: list[ScreenFactor] = Field(default_factory=list)
-    source: str = "screen"  # "screen" (deterministic) | "llm" (augmentation)
+    source: str = "screen"  # "screen" (deterministic) | "llm" (augmentation) | "manual" | "ai"
+    group: str = ""  # the named scanner group this candidate belongs to (custom-groups model)
     generated_at: datetime
     verdict: AlphaVerdict | None = None  # set after evaluation (alpha OR not_alpha)
+
+
+class ScreenerGroup(BaseModel):
+    """A named scanner group (a bucket of candidates). kind: custom | scan | ai."""
+
+    name: str
+    kind: str = "custom"
+    count: int = 0
 
 
 class KeyLevel(BaseModel):

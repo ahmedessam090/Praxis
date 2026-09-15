@@ -9,6 +9,7 @@ from ta_assistant.patterns.detectors.base import (
     PatternCandidate,
     classify_bearish,
     closeness_conf,
+    neckline_is_flat,
 )
 from ta_assistant.patterns.trendlines import fit_trendline
 
@@ -29,6 +30,8 @@ def detect(ctx: GeometryContext) -> list[PatternCandidate]:
 
         neckline = fit_trendline([l1.idx, l2.idx], [l1.price, l2.price])
         breakdown = neckline.value_at(rs.idx)
+        if not neckline_is_flat(neckline, ls.idx, rs.idx, breakdown):
+            continue  # textbook H&S needs a ~horizontal neckline, not a tilted line
         height = head.price - neckline.value_at(head.idx)
         if height <= 0 or breakdown <= 0:
             continue

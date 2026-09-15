@@ -3,6 +3,8 @@ name = "ta-assistant"
 version = "0.0.1"
 description = "Local technical-analysis swing-trading decision-support assistant (Temporal-backed)."
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.12,<3.13"
 dependencies = [
     # ---- core (pre-phase durability skeleton) ----

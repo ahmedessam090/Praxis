@@ -58,9 +58,33 @@ def test_candidates_crud(temp_db: str) -> None:
     assert client.get("/api/screener/candidates").json() == []
 
 
+def test_candidates_sorted_by_updated_at_desc(temp_db: str) -> None:
+    # The table shows most-recently-touched first, so a manually-added ticker lands on top.
+    from sqlalchemy import text
+
+    from ta_assistant.db.session import session_scope
+
+    repo.upsert_candidates([_cand("AAPL"), _cand("MSFT"), _cand("NVDA")])
+    stamps = {  # raw SQL so the ORM's onupdate=now() doesn't clobber our test timestamps
+        "AAPL": "2026-06-15 00:00:00",
+        "NVDA": "2026-06-15 00:05:00",
+        "MSFT": "2026-06-15 00:10:00",  # most recently touched
+    }
+    with session_scope() as s:
+        for sym, ts in stamps.items():
+            s.execute(
+                text("UPDATE screener_candidates SET updated_at = :ts WHERE symbol = :sym"),
+                {"ts": ts, "sym": sym},
+            )
+    order = [c["symbol"] for c in client.get("/api/screener/candidates").json()]
+    assert order == ["MSFT", "NVDA", "AAPL"]
+
+
 def test_add_candidate_manual(temp_db: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        screener_router, "build_manual_candidate", lambda sym, now: _cand("TSLA", "discretionary")
+        screener_router,
+        "build_manual_candidate",
+        lambda sym, now, group="", *a: _cand("TSLA", "discretionary"),
     )
     body = client.post("/api/screener/candidates", json={"symbol": "tsla"}).json()
     assert body["symbol"] == "TSLA"
@@ -68,7 +92,9 @@ def test_add_candidate_manual(temp_db: str, monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_add_candidate_invalid_400(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(screener_router, "build_manual_candidate", lambda sym, now: None)
+    monkeypatch.setattr(
+        screener_router, "build_manual_candidate", lambda sym, now, group="", *a: None
+    )
     r = client.post("/api/screener/candidates", json={"symbol": "zzzz"})
     assert r.status_code == 400
 
@@ -83,10 +109,50 @@ def test_alpha_and_downgraded_lists(temp_db: str) -> None:
 
 def test_scan_trigger(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(screener_router, "temporal_client", _fake_client)
-    assert client.post("/api/screener/scan").json() == {"workflow_id": "wf-screen-123"}
+    body = client.post("/api/screener/scan").json()
+    assert body["workflow_id"] == "wf-screen-123"
+    assert body["group"].startswith("Rally screen")  # auto-named rally-screen group
 
 
-def test_evaluate_trigger(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_groups_crud(temp_db: str) -> None:
+    assert client.get("/api/screener/groups").json() == []
+    assert client.post("/api/screener/groups", json={"name": "My AI plays"}).status_code == 200
+    repo.upsert_candidates([_cand("AAPL")])  # not in the group
+    g = client.post("/api/screener/groups", json={"name": "Watchlist"}).json()
+    assert g["name"] == "Watchlist" and g["kind"] == "custom"
+    names = {x["name"] for x in client.get("/api/screener/groups").json()}
+    assert names == {"My AI plays", "Watchlist"}
+    assert client.delete("/api/screener/groups/Watchlist").json() == {"removed": 0}
+    assert {x["name"] for x in client.get("/api/screener/groups").json()} == {"My AI plays"}
+
+
+def test_candidates_filtered_by_group(temp_db: str) -> None:
+    repo.create_group("G1")
+    repo.upsert_candidates(
+        [
+            _cand("AAPL").model_copy(update={"group": "G1"}),
+            _cand("MSFT").model_copy(update={"group": "G2"}),
+        ]
+    )
+    g1 = client.get("/api/screener/candidates", params={"group": "G1"}).json()
+    assert {c["symbol"] for c in g1} == {"AAPL"}
+
+
+def test_ai_pick_into_group(temp_db: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(screener_router, "propose_for_query", lambda *a, **k: ["NVDA", "AVGO"])
+    monkeypatch.setattr(
+        screener_router,
+        "build_manual_candidate",
+        lambda sym, now, group="", *a: _cand(sym).model_copy(update={"group": group}),
+    )
+    body = client.post(
+        "/api/screener/ai-pick", json={"query": "AI infra leaders", "group": "AI infra"}
+    ).json()
+    assert body["added"] == 2 and body["group"] == "AI infra"
+    assert {c.symbol for c in repo.list_candidates(group="AI infra")} == {"NVDA", "AVGO"}
+
+
+def test_evaluate_trigger(temp_db: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(screener_router, "temporal_client", _fake_client)
     body = client.post("/api/screener/alpha/evaluate", json={"symbols": ["aapl", "nvda"]}).json()
     assert body["workflow_id"] == "wf-screen-123"

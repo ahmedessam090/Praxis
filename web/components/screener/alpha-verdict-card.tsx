@@ -2,7 +2,11 @@
 
 import { StatusPip } from "@/components/level/level";
 import { Badge, Card, CardBody } from "@/components/ui/primitives";
-import { ConvictionRing, SectorChip } from "@/components/screener/screener-ui";
+import {
+  ActionStateBadge,
+  ConvictionRing,
+  SectorChip,
+} from "@/components/screener/screener-ui";
 import type { AlphaVerdict } from "@/lib/api";
 import { cn, fmt, statusColor } from "@/lib/utils";
 
@@ -27,9 +31,22 @@ function Stat({
   );
 }
 
-export function AlphaVerdictCard({ verdict }: { verdict: AlphaVerdict }) {
+export function AlphaVerdictCard({
+  verdict,
+  triggerZone,
+}: {
+  verdict: AlphaVerdict;
+  /** Trigger range from the surfaced thesis (the verdict itself only carries action_state). */
+  triggerZone?: { low: number | null | undefined; high: number | null | undefined };
+}) {
   const conv = Math.max(0, Math.min(100, verdict.conviction ?? 0));
   const reasons = verdict.reasons ?? [];
+  const hasTriggerZone =
+    triggerZone != null &&
+    triggerZone.low != null &&
+    triggerZone.high != null &&
+    !Number.isNaN(triggerZone.low) &&
+    !Number.isNaN(triggerZone.high);
   return (
     <Card>
       <CardBody className="pt-5">
@@ -40,6 +57,7 @@ export function AlphaVerdictCard({ verdict }: { verdict: AlphaVerdict }) {
               <Badge tone={verdict.is_alpha ? "bull" : "muted"}>
                 {verdict.is_alpha ? "★ ALPHA" : "not alpha"}
               </Badge>
+              <ActionStateBadge state={verdict.action_state} />
               {verdict.sector ? <SectorChip sector={verdict.sector} /> : null}
               {verdict.stage ? (
                 <span className="text-xs capitalize text-muted">{verdict.stage}</span>
@@ -63,6 +81,17 @@ export function AlphaVerdictCard({ verdict }: { verdict: AlphaVerdict }) {
           <Stat label="Target" value={fmt(verdict.target)} tone="bull" />
           <Stat label="R : R" value={fmt(verdict.rr)} />
         </div>
+
+        {hasTriggerZone ? (
+          <p className="mt-2 text-xs text-muted">
+            <span className="font-medium text-foreground">Trigger range:</span>{" "}
+            <span className="tabular-nums">
+              {fmt(triggerZone!.low)}
+              <span className="px-1 text-border">–</span>
+              {fmt(triggerZone!.high)}
+            </span>
+          </p>
+        ) : null}
 
         {reasons.length > 0 ? (
           <div className="mt-4">

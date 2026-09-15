@@ -81,6 +81,39 @@ SECTOR_ETF = {
 SECTORS = list(SECTOR_ETF)
 SECTOR_ETFS = list(SECTOR_ETF.values())
 
+# --- Industry / thematic groups (for the Leadership ranking too): the rotations a swing
+# trader actually chases — semis, software, AI, biotech, homebuilders, etc. The broad GICS
+# sectors hide these (semis sit inside XLK), so we rank them as distinct groups so a rallying
+# leader like Semiconductors surfaces by name. All tickers are liquid with deep history. ---
+INDUSTRY_ETF = {
+    "semiconductors": "SMH",
+    "software": "IGV",
+    "internet": "FDN",
+    "cloud": "SKYY",
+    "ai_robotics": "BOTZ",
+    "cybersecurity": "CIBR",
+    "fintech": "FINX",
+    "transports": "IYT",
+    "homebuilders": "XHB",
+    "biotech": "XBI",
+    "medical_devices": "IHI",
+    "regional_banks": "KRE",
+    "retail": "XRT",
+    "oil_gas_ep": "XOP",
+    "oil_services": "OIH",
+    "metals_mining": "XME",
+    "gold_miners": "GDX",
+    "aerospace_defense": "ITA",
+    "infrastructure": "PAVE",
+    "clean_energy": "ICLN",
+}
+
+# The full Leadership-ranking universe = GICS sectors + industry/thematic groups. Used by the
+# dashboard's Sector Leadership pillar (the "what's rallying now" read). The screener keeps
+# using the GICS-only SECTOR_ETF for stock→sector mapping.
+LEADERSHIP_ETF = {**SECTOR_ETF, **INDUSTRY_ETF}
+LEADERSHIP_ETFS = list(dict.fromkeys(LEADERSHIP_ETF.values()))  # dedup, stable order
+
 # --- Breadth basket: ~45 liquid, sector-spread large caps (proxy for % above MA /
 # net new highs-lows, since yfinance lacks an exchange-wide A/D feed). Reusable later
 # for the Alpha-list universe screener. ---
@@ -113,7 +146,7 @@ def all_symbols() -> list[str]:
         COMMODITY_ETFS,
         [DXY, *DXY_FALLBACKS],
         INTERMARKET,
-        SECTOR_ETFS,
+        LEADERSHIP_ETFS,
         BREADTH_BASKET,
     ):
         for s in group:
@@ -128,10 +161,13 @@ def fetch_groups() -> list[list[str]]:
         INDICES,
         [*COMMODITIES, *COMMODITY_ETFS, DXY, *DXY_FALLBACKS],
         INTERMARKET,
-        SECTOR_ETFS,
     ]
-    basket = BREADTH_BASKET
     chunk = 15
-    for start in range(0, len(basket), chunk):
-        groups.append(basket[start : start + chunk])
+    # Leadership ETFs not already fetched in INTERMARKET (avoid double-fetching SMH/IGV/IYT/…).
+    inter = set(INTERMARKET)
+    leadership = [s for s in LEADERSHIP_ETFS if s not in inter]
+    for start in range(0, len(leadership), chunk):
+        groups.append(leadership[start : start + chunk])
+    for start in range(0, len(BREADTH_BASKET), chunk):
+        groups.append(BREADTH_BASKET[start : start + chunk])
     return groups

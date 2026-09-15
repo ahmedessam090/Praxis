@@ -4,6 +4,14 @@
 # the UI, create an org+project, copy the Public/Secret keys into your .env:
 #   LANGFUSE_PUBLIC_KEY=pk-lf-...   LANGFUSE_SECRET_KEY=sk-lf-...   LANGFUSE_HOST=http://localhost:3001
 # Based on the official Langfuse self-host compose.
+#
+# Every credential in this file is a throwaway localhost default. They are published in the
+# open — treat them as placeholders and replace all of them before binding this to anything
+# other than 127.0.0.1.
+#
+# Licensing: Langfuse and ClickHouse are OSS (MIT / Apache-2.0), but MinIO below is AGPL-3.0.
+# These are separate containers, so they impose nothing on this repo's Apache-2.0 licence —
+# running them means accepting their terms yourself. See NOTICE.
 
 services:
   langfuse-worker:
@@ -84,7 +92,8 @@ services:
       retries: 10
 
   redis:
-    image: redis:7
+    # Pinned to 7.2: Redis 7.4+ moved to RSALv2/SSPL (source-available, not OSI).
+    image: redis:7.2-bookworm
     restart: always
     command: --requirepass myredissecret
     healthcheck:

@@ -8,11 +8,50 @@ import json
 import logging
 from collections.abc import Iterable
 
-from ta_assistant.analyst.prompts import SCAN_AUGMENT_SYSTEM
+from ta_assistant.analyst.prompts import SCAN_AUGMENT_SYSTEM, SCAN_QUERY_SYSTEM
 from ta_assistant.analyst.provider import LLMAnalyst
 from ta_assistant.regime.sectors import SectorRank
 
 logger = logging.getLogger(__name__)
+
+
+def propose_for_query(
+    query: str,
+    analyst: LLMAnalyst,
+    considered: Iterable[str],
+    *,
+    max_total: int = 10,
+) -> list[str]:
+    """LLM proposes liquid, good-performer tickers matching the user's free-text description
+    (the 'AI pick' button), excluding names already tracked. Empty on no key / bad output;
+    every ticker is validated later by a real data fetch."""
+    q = query.strip()
+    if not q:
+        return []
+    seen = {s.upper() for s in considered}
+    user = (
+        f"What the trader wants: {q}\n"
+        f"Already considered (exclude these): {', '.join(sorted(seen)) or 'none'}.\n"
+        f"Return at most {max_total} tickers."
+    )
+    try:
+        raw = analyst.synthesize(SCAN_QUERY_SYSTEM, user)
+    except Exception as exc:  # noqa: BLE001 - the AI pick must never break the request
+        logger.debug("ai pick failed: %s", exc)
+        return []
+    if not raw or "[" not in raw or "]" not in raw:
+        return []
+    try:
+        data = json.loads(raw[raw.index("[") : raw.rindex("]") + 1])
+    except (ValueError, json.JSONDecodeError):
+        return []
+    out: list[str] = []
+    for x in data if isinstance(data, list) else []:
+        sym = str(x).strip().upper()
+        if sym and sym.isascii() and sym not in seen and 1 <= len(sym) <= 6:
+            seen.add(sym)
+            out.append(sym)
+    return out[:max_total]
 
 
 def propose_extra(

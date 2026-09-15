@@ -44,3 +44,53 @@ def fetch_daily(symbol: str) -> pd.DataFrame:
         period="max", interval="1d", auto_adjust=False, actions=True, repair=True
     )
     return _normalize(raw)
+
+
+# yfinance's sector names / sectorKey -> our GICS keys (regime.universe.SECTOR_ETF keys).
+_GICS_BY_YF = {
+    "technology": "technology",
+    "communication services": "communication",
+    "consumer cyclical": "discretionary",
+    "consumer defensive": "staples",
+    "healthcare": "health",
+    "financial services": "financials",
+    "industrials": "industrials",
+    "energy": "energy",
+    "basic materials": "materials",
+    "utilities": "utilities",
+    "real estate": "real_estate",
+}
+
+
+def _map_yf_sector(raw: str) -> str | None:
+    """Map a yfinance sector string (display name or sectorKey, e.g. 'Consumer Cyclical' or
+    'financial-services') to our GICS key. Returns None if it isn't recognized."""
+    norm = str(raw or "").strip().lower().replace("-", " ").replace("_", " ")
+    if not norm:
+        return None
+    if norm in _GICS_BY_YF:
+        return _GICS_BY_YF[norm]
+    if norm in set(_GICS_BY_YF.values()):  # a sectorKey that already equals one of our keys
+        return norm
+    return None
+
+
+def fetch_sector(symbol: str, tries: int = 3) -> str | None:
+    """Best-effort GICS sector for a ticker from yfinance, mapped to our keys. Retries because
+    yfinance's metadata endpoint is flaky; returns None if it can't be resolved."""
+    import yfinance as yf
+
+    for _ in range(max(1, tries)):
+        try:
+            ticker = yf.Ticker(symbol)
+            try:
+                info = ticker.get_info() or {}
+            except Exception:  # noqa: BLE001 - get_info can throw; fall back to the .info prop
+                info = getattr(ticker, "info", {}) or {}
+            for field in ("sectorKey", "sector", "sectorDisp"):
+                key = _map_yf_sector(info.get(field, ""))
+                if key:
+                    return key
+        except Exception:  # noqa: BLE001 - transient network/parse error -> retry
+            continue
+    return None

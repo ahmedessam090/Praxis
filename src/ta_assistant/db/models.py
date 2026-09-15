@@ -110,11 +110,23 @@ class ScreenerCandidateRow(Base):
     sector: Mapped[str] = mapped_column(String(32))
     score: Mapped[float] = mapped_column(Float)
     status: Mapped[str] = mapped_column(String(16))
+    group_name: Mapped[str] = mapped_column(String(64), server_default="", default="", index=True)
     payload_json: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class ScreenerGroupRow(Base):
+    """A named scanner group (a bucket of candidates the user creates, or that a rally-screen /
+    AI pick fills). Persisted so an empty group survives."""
+
+    __tablename__ = "screener_groups"
+
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), server_default="custom", default="custom")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class AlphaItemRow(Base):

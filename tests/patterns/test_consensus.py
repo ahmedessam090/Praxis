@@ -58,6 +58,20 @@ def test_far_breakout_does_not_cluster() -> None:
     assert len(cluster_candidates([a, b])) == 2
 
 
+def test_low_confidence_core_not_promoted_to_primary() -> None:
+    # A sub-floor (0.55) lone bullish core must NOT be surfaced as the trade — the timeframe is
+    # then treated as having no clean setup rather than fabricating one.
+    weak = _p("w", "descending_channel", conf=0.55)
+    assign_consensus([weak])
+    assert weak.role != "primary"
+
+
+def test_clean_confidence_core_becomes_primary() -> None:
+    strong = _p("s", "rectangle", conf=0.7)
+    assign_consensus([strong])
+    assert strong.role == "primary"
+
+
 def test_disjoint_regions_do_not_cluster() -> None:
     a = _p("a", "cup_and_handle", start=(2026, 1, 1), end=(2026, 2, 1), breakout=100)
     b = _p("b", "double_bottom", start=(2026, 5, 1), end=(2026, 6, 1), breakout=100)

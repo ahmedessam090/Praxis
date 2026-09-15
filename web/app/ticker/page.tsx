@@ -159,6 +159,12 @@ export default function TickerPage() {
           {thesis ? <ThesisCard thesis={thesis} /> : null}
         </>
       )}
+
+      <p className="pb-4 text-center text-xs text-muted">
+        An LLM&apos;s reading of chart geometry, not a recommendation — entry/target/stop are
+        measured levels, not price predictions. Decision support, not financial advice; you
+        place every trade. Capital at risk.
+      </p>
     </div>
   );
 }

@@ -1,0 +1,92 @@
+TA Assistant
+Copyright 2026 ahmedcoder01
+
+This product includes software developed as part of the TA Assistant project,
+licensed under the Apache License, Version 2.0 (see LICENSE).
+
+================================================================================
+Bundled third-party software
+================================================================================
+
+The following third-party work is redistributed within this repository and
+inside the built wheel (see [tool.hatch.build.targets.wheel] in pyproject.toml).
+
+TradingView Lightweight Charts(TM) v5.0.8
+  Copyright (c) 2025 TradingView, Inc.
+  Licensed under the Apache License, Version 2.0
+  https://www.apache.org/licenses/LICENSE-2.0
+  Path: src/ta_assistant/presentation/vendor/lightweight-charts.standalone.production.js
+  Upstream: https://github.com/tradingview/lightweight-charts
+
+  This project uses only the open-source Lightweight Charts library. It does
+  NOT use or redistribute TradingView's proprietary Charting Library.
+
+================================================================================
+Third-party dependencies
+================================================================================
+
+The packages below are not redistributed in this repository; they are resolved
+at install time from PyPI / npm. They are listed to acknowledge their authors
+and to record the licence terms under which they are used.
+
+Apache License 2.0
+  yfinance, requests, streamlit, openai, pytest-asyncio, typescript,
+  lightweight-charts (npm), clickhouse-server (container image)
+
+MIT License
+  temporalio, pydantic, pydantic-settings, SQLAlchemy, alembic, fastapi,
+  pandas-market-calendars, plotly, anthropic, langfuse, pytest, ruff, mypy,
+  hatchling, next, react, react-dom, next-themes, clsx, tailwind-merge,
+  tailwindcss, eslint, @tanstack/react-query, openapi-typescript
+
+BSD 3-Clause License
+  numpy, pandas, scipy, mplfinance, uvicorn, httpx
+
+Python Software Foundation License
+  matplotlib
+
+ISC License
+  lucide-react
+
+PostgreSQL License
+  postgres (container image)
+
+Each dependency remains subject to its own licence. Consult the individual
+package distributions for the full text of those licences and their copyright
+notices.
+
+================================================================================
+Optional self-hosted infrastructure
+================================================================================
+
+The optional LLM-observability stack in docker/langfuse/docker-compose.yml
+references container images whose licences differ from this project's:
+
+  - MinIO (minio/minio) is licensed under the GNU AGPL v3.0.
+  - Redis images from version 7.4 onward are licensed under RSALv2 / SSPL,
+    which are source-available rather than OSI-approved licences.
+
+These run as separate containers and are not linked into or distributed with
+this project's code, so they impose no obligations on this repository. Anyone
+choosing to run that stack accepts those images' terms directly.
+
+================================================================================
+Third-party data
+================================================================================
+
+Market data is fetched at runtime from Yahoo Finance (via yfinance) and Stooq.
+No vendor market data is committed to this repository. Use of those sources is
+governed by each provider's own terms of service; see the "Data sources" section
+of README.md.
+
+================================================================================
+Trade marks
+================================================================================
+
+Names of traders, authors and publications referenced in this codebase
+(including Mark Minervini, Peter Brandt, Stan Weinstein, William O'Neil,
+John Murphy and Investor's Business Daily) are used descriptively, to identify
+the established schools of technical analysis that individual rules derive
+from. Such names may be trade marks of their respective owners. This project
+is independent and is not affiliated with, sponsored by, endorsed by, or
+connected to any of them.

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from ta_assistant.patterns.context import GeometryContext
-from ta_assistant.patterns.types import Pivot
+from ta_assistant.patterns.types import Pivot, Trendline
 
 FORMING = "forming"
 CONFIRMED = "confirmed"
@@ -97,6 +98,11 @@ def fit_rails(ctx: GeometryContext, n: int = 4) -> tuple | None:  # type: ignore
     lower = fit_trendline([p.idx for p in lows], [p.price for p in lows])
     region_start = min(highs[0].idx, lows[0].idx)
     region_end = max(highs[-1].idx, lows[-1].idx)
+    # Both rails must be CLEAN straight lines (touches actually sit on them) — reject a smear
+    # through scattered swings so we don't draw a "triangle/wedge/channel" that isn't really there.
+    atr = ctx.atr_at(min(region_end, len(ctx.df) - 1))
+    if not (rail_is_clean(upper, highs, atr) and rail_is_clean(lower, lows, atr)):
+        return None
     return upper, lower, highs, lows, region_start, region_end
 
 
@@ -105,6 +111,57 @@ def closeness_conf(a: float, b: float, tol: float) -> float:
     if tol <= 0:
         return 0.5
     return max(0.0, min(1.0, 1.0 - 0.5 * abs(a - b) / tol))
+
+
+# --- strictness gates: the user wants clean, textbook geometry — no forced/messy patterns ---
+_NECKLINE_MAX_SLOPE_PCT = 8.0  # an H&S neckline must be ~horizontal: its total rise across the
+#                                pattern span must be <= this % of price (else it's a sloped
+#                                line, not a neckline — and it isn't an H&S)
+_RAIL_TOL_ATR = 1.5  # a defining rail's touches must sit within ~1.5*ATR of the fitted line
+#                      (clean enough to draw; a scattered zigzag sits several ATR off and fails)
+
+
+def neckline_is_flat(
+    neckline: Trendline,
+    x_start: int,
+    x_end: int,
+    ref_price: float,
+    max_pct: float = _NECKLINE_MAX_SLOPE_PCT,
+) -> bool:
+    """A (near-)horizontal neckline: its total rise across the pattern span is a small % of
+    price. Rejects sloped 'necklines' — an (inverse) H&S with a steeply tilted neckline is not
+    a textbook H&S."""
+    if ref_price <= 0:
+        return False
+    rise = abs(neckline.value_at(x_end) - neckline.value_at(x_start))
+    return (rise / ref_price) * 100.0 <= max_pct
+
+
+def rail_is_clean(
+    line: Trendline,
+    pivots: Sequence[Pivot],
+    atr: float,
+    *,
+    min_touches: int = 2,
+    tol_mult: float = _RAIL_TOL_ATR,
+) -> bool:
+    """A clean straight rail: at least `min_touches` swing pivots sit within ~tol_mult*ATR of the
+    fitted line — a line you could actually draw, not a smear through scattered swings."""
+    from ta_assistant.patterns.trendlines import line_fit_quality
+
+    tol = max(tol_mult * max(atr, 0.0), 1e-9)
+    touches, _residual = line_fit_quality(line, pivots, tol)
+    return touches >= min_touches
+
+
+def fit_confidence(touches: int, residual: float, atr: float) -> float:
+    """Confidence derived from how cleanly a structure fits (vs a hardcoded constant): a tight
+    residual + more touches scores higher, so messy patterns score low and get filtered out."""
+    if atr <= 0 or not math.isfinite(residual):
+        return 0.5
+    tightness = max(0.0, 1.0 - residual / (1.5 * atr))  # 1.0 at residual 0, 0 at 1.5*ATR
+    touch_bonus = min(0.1 * max(0, touches - 2), 0.2)
+    return round(min(0.9, 0.55 + 0.25 * tightness + touch_bonus), 3)
 
 
 def add_volume_features(ctx: GeometryContext, cand: PatternCandidate) -> None:

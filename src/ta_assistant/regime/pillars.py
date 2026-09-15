@@ -113,7 +113,8 @@ def _primary_trend(frames: dict[str, pd.DataFrame], now: datetime) -> RegimePill
                 "Weinstein stage (S&P weekly)",
                 stage.status,
                 stage.label,
-                "Only Stage 2 (advancing above a rising 30-week MA) is a buy environment.",
+                "Only Stage 2 (advancing above a rising 30-week MA) is a constructive "
+                "environment for long structures.",
                 "Weinstein",
                 float(stage.stage),
             )
@@ -392,28 +393,40 @@ def _intermarket(frames: dict[str, pd.DataFrame]) -> RegimePillar:
 
 
 def _sector_leadership(frames: dict[str, pd.DataFrame]) -> RegimePillar:
-    ranks = rank_sectors(frames)
+    # Rank the BROAD universe — GICS sectors + industry/thematic groups (semis, software, AI,
+    # biotech, …) — so a rallying leader like Semiconductors surfaces by name, not buried in tech.
+    ranks = rank_sectors(frames, U.LEADERSHIP_ETF)
     metrics: list[RegimeMetric] = []
     for r in ranks:
-        metrics.append(
-            _mk(
-                f"sector_{r.sector}",
-                f"{r.sector.replace('_', ' ').title()} ({r.etf})",
-                r.rs_status,
-                f"RS {r.rs_pct:+.1f}% vs SPY · {r.trend_pct:+.1f}% 3m",
-                "Relative strength of the sector ETF vs the S&P 500.",
-                "Sector RS (Murphy)",
-                r.score,
-            )
+        m = _mk(
+            f"sector_{r.sector}",
+            f"{r.sector.replace('_', ' ').title()} ({r.etf})",
+            r.rs_status,
+            f"RS {r.rs_pct:+.1f}% vs SPY · {r.trend_pct:+.1f}% 3m",
+            "Relative strength of the group ETF vs the S&P 500.",
+            "Group RS (Murphy)",
+            r.score,
         )
+        if r.overheated:  # rallying too high — extended/climactic (Minervini/Weinstein/O'Neil)
+            m.flag = "overheated"
+            m.value += f" · +{r.ext_pct:.0f}% vs 50d"
+            m.detail = (
+                f"Overheated: {r.ext_pct:+.0f}% above its 50-day MA, {r.trend_pct:+.0f}% in 3m — "
+                "extended/climactic; historically such extensions have tended to mean-revert "
+                "toward the rising MA."
+            )
+        metrics.append(m)
+    overheated = [r.sector.replace("_", " ") for r in ranks if r.overheated]
     leaders = [r.sector.replace("_", " ") for r in ranks[:3]]
     score = _score_of([m for m in metrics if m.status is not Bias.NEUTRAL][:6])
     summary = (
-        f"Leaders: {', '.join(leaders)}." if leaders else "No sector data."
+        f"Leading now: {', '.join(leaders)}." if leaders else "No group data."
     )
+    if overheated:
+        summary += f" Overheated (extended): {', '.join(overheated)}."
     return RegimePillar(
         key="sector_leadership",
-        name="Sector Leadership",
+        name="Sector & Industry Leadership",
         status=_status_from_score(score),
         score=score,
         summary=summary + " The Alpha scanner favours the leaders.",

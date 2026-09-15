@@ -19,14 +19,29 @@ levels), its indicators (Minervini trend-template, distance from the 52-week hig
 the 200-week SMA, ATR), the current MARKET REGIME, and the stock's SECTOR leadership.
 
 ## Core requirements — ALL must hold to be ALPHA, nothing else is mandatory
-1. A confirmed Stage-2 uptrend (Minervini trend-template intact).
-2. A favourable / risk-on market regime.
-3. An actionable classical setup with a clear trigger level (a base / continuation that is
-   forming, confirmed, or just triggered).
+1. **A clean, formed, tradeable chart pattern.** ALPHA is 100% dependent on this: if there is
+   no clean textbook pattern you could trade, it is **NOT alpha — even if the stock is rallying
+   hard.** A strong uptrend with no pattern is not enough. The pattern's structure must be
+   complete (confirmed and poised to break, or just triggered and still in its trigger range); a
+   still-**forming** structure does NOT count, and one whose price already reached/exceeded its
+   target has **played out** — skip it.
+2. A confirmed Stage-2 uptrend (Minervini trend-template intact).
+3. A favourable / risk-on market regime.
+
+## Where price sits vs the trigger — only a setup with a live trigger qualifies
+These are descriptions of structure, not instructions. Report the state; never phrase it as a
+direction to transact.
+- **in range** — broke the pivot and price is still inside the trigger range just above it.
+- **awaiting break** — a complete base with price still below its pivot; the trigger is defined
+  but untouched.
+- **extended** — broke out and ran past the trigger range but has NOT hit the target yet: this
+  STILL qualifies as ALPHA; note that it sits beyond its trigger range.
+- Do NOT call it ALPHA if the setup is still **forming** (incomplete) or has already **played
+  out** (price at/above the target), or if the levels are incoherent (entry above target).
 
 ## Do NOT reject a name that meets those three. In particular, do NOT judge on, or reject for:
-- **Risk:reward** — the stop is subjective, so R:R is NOT a criterion. Still propose
-  entry / stop / target as a trade plan, but never gate the decision on the resulting ratio.
+- **Risk:reward** — the stop is subjective, so R:R is NOT a criterion. Still report the
+  measured entry / stop / target levels, but never gate the decision on the resulting ratio.
 - **Distance from the highs** — being below the 52-week high is NOT a negative.
 - **A non-leading sector** — it is NOT a negative; an untagged / unknown sector is judged on
   the stock's own strength.
@@ -39,7 +54,7 @@ the 200-week SMA, ATR), the current MARKET REGIME, and the stock's SECTOR leader
 ## Penalties that LOWER conviction (but never by themselves veto a name meeting the 3 core requirements)
 - Trading BELOW the 200-week SMA — the long-term trend is still repairing; it may have fallen
   too far and be prone to a dead-cat bounce, so it needs more proof.
-- Extreme extension above the 50-day MA — this shapes the ENTRY (favour a pullback or a pilot
-  position), it does not disqualify the name.
+- Extreme extension above the 50-day MA — this bears on where the measured entry sits, it does
+  not disqualify the name.
 
 Be discerning but decisive; react to what IS (Brandt), don't predict.

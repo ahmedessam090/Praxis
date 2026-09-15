@@ -6,6 +6,17 @@ Peter Brandt / Mark Minervini style). It detects patterns, annotates charts, and
 reasoned case — **you always place the trades.** Not short selling, not day trading, not
 fundamentals, not auto-execution.
 
+> ⚠️ **Not financial advice.** This is a personal research and educational tool that
+> outputs the author's own charting heuristics. Nothing it produces is investment advice,
+> a recommendation, or a solicitation to buy or sell anything, and none of it is tailored
+> to your circumstances. Labels such as "ALPHA", "In range" and the entry/stop/target
+> levels are mechanical descriptions of chart geometry, not guidance. Technical analysis
+> does not predict prices, past performance says nothing about future results, and you can
+> lose money — including more than you expect. Do your own research and consider taking
+> advice from someone authorised by the FCA. The software is provided **"as is", without
+> warranty of any kind**; see [Legal](#legal) and [LICENSE](LICENSE). You alone are
+> responsible for every trade you place.
+
 Every analysis runs as a **durable [Temporal](https://temporal.io) workflow** of
 **activities**, so it survives worker crashes and retries transient failures without
 redoing completed work.
@@ -138,4 +149,57 @@ make lint typecheck
   suite is not hard-blocked on Rosetta. Integration tests use the dev server directly.
 - Alternative (no Docker): `brew install temporal && temporal server start-dev
   --db-filename .temporal/temporal.db --ui-port 8233`, then point `TEMPORAL_ADDRESS` at it.
+
+## Data sources
+
+Price history comes from **Yahoo Finance** (via [yfinance](https://github.com/ranaroussi/yfinance),
+no key) with **[Stooq](https://stooq.com)** as the fallback when Yahoo rate-limits or returns
+nothing. Both are fetched **at runtime**; no vendor market data is committed to this repo, and
+the local SQLite cache (`data/ta.db`) is gitignored.
+
+Your use of those sources is governed by their terms, not by this project's licence. Yahoo's
+terms contemplate personal, non-commercial use and restrict redistribution of their data, so
+treat anything the tool caches as yours to look at and not yours to republish. If you need
+data you can rely on or redistribute, buy a licensed feed — the `data/` providers are behind a
+small interface precisely so you can swap one in.
+
+The screener's ~186-ticker universe (`src/ta_assistant/screener/universe.py`) and the ~45-name
+breadth basket (`src/ta_assistant/regime/universe.py`) are **hand-curated lists of liquid US
+large/mid caps**, not the constituent list of any index. Index membership data is the licensed
+property of its publisher; don't paste one in.
+
+## Legal
+
+**Not financial advice.** Read the disclaimer at the top of this file. In short: this is a
+personal, local-only research tool. It does not place trades — there is no broker integration
+and no order-placement code path — and it does not send signals to anyone. It runs on your
+machine, against your API keys, under a rubric you can edit
+(`src/ta_assistant/analyst/alpha_rules.md`). Every output is a description of chart geometry
+for you to accept or reject; every decision and every order is yours.
+
+If you fork this and turn it into something that advises other people — a hosted version, a
+paid tier, a public signal feed, a subscription list — that is a materially different activity
+from publishing source code, and in the UK it may fall inside the FCA's perimeter (see the
+FCA's [PERG 8.30](https://www.handbook.fca.org.uk/handbook/PERG/8/30.html) on software that
+generates buy/sell signals, and [PERG 2.3](https://www.handbook.fca.org.uk/handbook/PERG/2/3.html)
+on the business test). Take your own advice before you do that.
+
+**No warranty.** Licensed under Apache-2.0, which provides this software on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, and excludes liability for damages arising from
+its use. See [LICENSE](LICENSE) sections 7 and 8.
+
+**Not affiliated.** This project references the work of Mark Minervini, Peter Brandt, Stan
+Weinstein, William O'Neil, John Murphy and others **descriptively**, to credit the school of
+classical technical analysis each rule comes from. The implementations are the author's own
+reading of publicly discussed ideas; no text from any book or paid course is reproduced here.
+Those names may be trade marks of their respective owners. This project is independent and is
+**not affiliated with, sponsored by, endorsed by, or connected to** any of them, nor with
+TradingView, Yahoo, Stooq, or any data or brokerage provider.
+
+## Licence
+
+[Apache License 2.0](LICENSE) — © 2026 ahmedcoder01.
+
+Third-party attributions, including the vendored TradingView Lightweight Charts build, are
+recorded in [NOTICE](NOTICE).
 ```

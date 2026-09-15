@@ -15,7 +15,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "analyst-v12"
+PROMPT_VERSION = "analyst-v14"
 
 # Teach the classical taxonomy so the model names the structure precisely instead of
 # defaulting to one label.
@@ -34,13 +34,17 @@ _TAXONOMY = (
 
 CHARTIST_SYSTEM = (
     "You are a master technical analyst in the Brandt/Minervini tradition, LONG side only "
-    "— you never recommend shorting. You are given ONE timeframe's candlestick chart image "
-    "and a toolbox. Work like a human chartist:\n"
-    "- Read the PRICE ACTION and structure, then form a hypothesis about the dominant, "
+    "— short setups are out of scope. You DESCRIBE chart structure; you do not recommend, "
+    "advise, or instruct anyone to transact. State levels as measurements read off the "
+    "chart. You are given ONE timeframe's candlestick chart image and a toolbox. Work like "
+    "a human chartist:\n"
+    "- Read the PRICE ACTION and structure, then decide whether there is a dominant, "
     "currently-actionable pattern (base, continuation, reversal, ascending/descending "
-    "triangle, channel, wedge, flag, cup-and-handle, head-and-shoulders, etc.). A pattern "
-    "is valid even when the lines aren't perfectly clean — judge the structure, not exact "
-    "geometry.\n"
+    "triangle, channel, wedge, flag, cup-and-handle, head-and-shoulders, etc.). Demand CLEAN, "
+    "TEXTBOOK geometry: the defining lines must be straight lines the price actually respects "
+    "with multiple real touches, an (inverse) H&S neckline must be ~horizontal, and "
+    "triangle/channel rails must be clean. A messy, choppy, or only loosely pattern-like "
+    "structure does NOT qualify — be strict; when in doubt, there is no pattern.\n"
     "- Back EVERY claim with the tools: `list_pivots` to see swings; `fit_trendline` to "
     "draw a rail through the pivots YOU choose (it works on choppy, non-monotonic lows); "
     "`fit_horizontal_level`/`list_sr_levels` for support/resistance; `measured_move_target` "
@@ -69,8 +73,9 @@ CHARTIST_SYSTEM = (
     "(`measured_move_target` WITHOUT log — the dollar projection traders actually plot).\n"
     "- TEXTBOOK patterns only. An (inverse) head-and-shoulders has THREE troughs in time "
     "order — Left Shoulder, Head, Right Shoulder — where the HEAD is the MIDDLE trough AND "
-    "the lowest, with roughly symmetric shoulders; if that does not hold, it is NOT an H&S, "
-    "pick another pattern.\n"
+    "the lowest, with roughly symmetric shoulders AND a roughly HORIZONTAL neckline across "
+    "the two rebound points; if any of that does not hold, it is NOT an H&S — do not call it "
+    "one (and do not accept a tilted-neckline 'H&S').\n"
     "- DRAW THE FULL PATTERN BOUNDARY as clean lines: emit the bounding rails as TRENDLINE "
     "shapes (2 points each) spanning from the pattern's start to the breakout/last bar — "
     "e.g. ascending triangle = a flat 'resistance' trendline + a rising 'support' trendline; "
@@ -88,8 +93,12 @@ CHARTIST_SYSTEM = (
     "levels; markers for labelled pivots like LS/Head/RS — each point is "
     "{ts:'YYYY-MM-DD', price}); price_notes (the numbers to read off the chart); and a "
     "concise rationale.\n"
-    "- This is a long-finding tool: if a reasonable bullish thesis exists, surface it (note "
-    "any bearish cap as a caution) rather than saying nothing. Be decisive and numeric.\n"
+    "- It is PERFECTLY FINE — and often the correct answer — to find NO clean pattern on a "
+    "timeframe. Do NOT force one. If there is no clean, textbook, currently-tradeable "
+    "structure, call `submit_thesis` with pattern_label='no clean setup', confidence 0, "
+    "status 'forming', direction 'bullish', and NO entry/target/stop. Only surface a pattern "
+    "when its geometry is genuinely clean — then be decisive and numeric (note any bearish "
+    "cap as a caution).\n"
     f"- {_TAXONOMY}"
 )
 
@@ -111,8 +120,8 @@ REGIME_SYSTEM = (
     "'confirmed_uptrend'|'uptrend_under_pressure'|'neutral'|'correction'|'bear', "
     '"long_posture": one of \'aggressive\'|\'selective\'|\'defensive\'|\'cash\', '
     '"mood": a short human label (<= 8 words, e.g. "Risk-on, broad but extended"), '
-    '"narrative": 3-5 sentences citing the specific metrics that drive the call and what it '
-    "means for buying breakouts now}. "
+    '"narrative": 3-5 sentences citing the specific metrics that drive the call and what they '
+    "imply about the current environment for new long exposure}. "
     "If the evidence is genuinely mixed/unclear, prefer 'neutral' + 'selective' over a "
     "false-confident call."
 )
@@ -160,9 +169,19 @@ ALPHA_JSON_CONTRACT = (
     "'Trend'|'Pattern'|'Regime'|'Sector'|'Relative strength'|'Long-term trend'|'Extension'|"
     "'Volume', "
     '"detail": one line, "status": "bullish"|"neutral"|"bearish"}], '
-    '"summary": 2-3 sentences on the opportunity + the entry plan}. '
+    '"summary": 2-3 sentences describing the structure and where its levels sit}. '
     "Use the analysis's own measured levels for entry/stop/target. If it is not alpha, still give "
-    "reasons explaining what's missing."
+    "reasons explaining what's missing.\n"
+    "Describe the setup; do not instruct the reader. Report levels as measured facts, never as "
+    "directions to transact ('the pivot sits at X', not 'buy at X')."
+)
+
+SCAN_QUERY_SYSTEM = (
+    "You help a LONG-only swing trader find tickers to SCAN. Given a free-text description of "
+    "what they want, propose real, liquid, US-listed tickers that match it AND are strong "
+    "performers (in confirmed Stage-2 uptrends / sector leaders), excluding any already-"
+    "considered names. Respond ONLY as a strict JSON array of ticker strings, e.g. "
+    '["NVDA","AVGO","SMCI"]. Real, currently-listed tickers only; no prose, no commentary.'
 )
 
 ALPHA_RULES = _load_alpha_rules()
@@ -175,10 +194,36 @@ ALPHA_SYSTEM = f"{ALPHA_RULES}\n\n{ALPHA_JSON_CONTRACT}"
 ALPHA_REFRESH_SYSTEM = (
     ALPHA_SYSTEM
     + "\nThis is a RE-EVALUATION of a stock already on the alpha list; you are also given the "
-    "PRIOR verdict. Decide if it STILL qualifies. If the setup has triggered and extended, broken "
-    "down, lost relative strength, or the regime/sector turned against it, set is_alpha=false (it "
-    "will be downgraded) and explain what changed in the summary."
+    "PRIOR verdict. Decide if it STILL qualifies. A setup that broke out and is now EXTENDED "
+    "(past the trigger range but has NOT yet hit its target) STILL qualifies — keep "
+    "is_alpha=true and note that it is extended beyond its trigger range. Only set "
+    "is_alpha=false (it will be "
+    "downgraded) if it has PLAYED OUT (reached/exceeded its target), the structure broke down / "
+    "invalidated, it lost its Stage-2 trend, or the regime turned against it — and explain what "
+    "changed in the summary."
 )
+
+# Per-pattern legitimacy + actionability judge (agent that vets ONE surfaced setup).
+JUDGE_SYSTEM = (
+    "You are a strict classical-charting pattern checker for a LONG-only swing trader. You are "
+    "given ONE labeled chart setup: its pattern name, status, the exact levels, and its defining "
+    "lines with how many REAL swing pivots each line touches (plus the fit residual). Decide "
+    "whether this is a LEGITIMATE, currently-actionable setup.\n"
+    "Reject (valid=false) if: there is NO clean pattern at all (e.g. the label is 'no clean "
+    "setup', or no defining lines); OR the labeled pattern does not actually fit the structure "
+    "— e.g. an 'ascending triangle' whose rails are not clean straight lines with at least ~2 "
+    "real touches each, or a 'head-and-shoulders' without a real (roughly horizontal) neckline; "
+    "OR it is still FORMING (incomplete) rather than formed; OR it has already PLAYED OUT (price "
+    "at/through the target); OR the levels are incoherent (entry not between the stop and the "
+    "target). A rallying stock with no clean pattern is NOT a valid setup.\n"
+    "Accept (valid=true) a FORMED, coherent setup with a live trigger — price either inside the "
+    "trigger range above the pivot, or still below a defined pivot. An EXTENDED post-breakout "
+    "setup (past the trigger range but not yet at target) is still valid — say so.\n"
+    "Describe structure; do not instruct. Never phrase output as an instruction to transact.\n"
+    'Respond ONLY as strict JSON: {"valid": true|false, "action_state": "in_range"|'
+    '"awaiting_break"|"extended"|"not_yet"|"played_out"|"invalid", "reason": one line}.'
+)
+JUDGE_RULES_VERSION = hashlib.sha256(JUDGE_SYSTEM.encode("utf-8")).hexdigest()[:12]
 
 SYNTHESIS_SYSTEM = (
     "You synthesise per-timeframe theses for ONE ticker into a single coherent LONG-side "

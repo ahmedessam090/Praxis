@@ -24,11 +24,13 @@ from ta_assistant.data.providers import get_daily_history
 from ta_assistant.data.resample import to_monthly, to_weekly
 from ta_assistant.db.models import Analysis
 from ta_assistant.db.session import session_scope
+from ta_assistant.patterns.action_state import action_state
 from ta_assistant.patterns.assemble import assign_conflicts, assign_nesting, to_detected_pattern
 from ta_assistant.patterns.consensus import assign_consensus, pick_headline
 from ta_assistant.patterns.context import build_context
 from ta_assistant.patterns.detectors import detect_all
 from ta_assistant.patterns.detectors.base import is_actionable, sane_levels
+from ta_assistant.patterns.indicators import atr
 from ta_assistant.patterns.levels import cluster_prices
 from ta_assistant.patterns.trendlines import fit_trendline
 from ta_assistant.presentation.charts import render_mpl, render_thesis_png
@@ -359,8 +361,19 @@ def _analyze_one(analysis: TickerAnalysis, tf: Timeframe, workflow_id: str) -> T
             "seed": _seed_fingerprint(seeds),
         }
     )
+    last_close = float(bars["close"].iloc[-1])
+    atr_val = float(atr(bars, 14).iloc[-1]) if len(bars) >= 2 else None
+
     def _frame(t: TimeframeThesis) -> TimeframeThesis:
-        return _apply_frame_rails(t, bars, _OVERVIEW_BARS[tf], tf)
+        t = _apply_frame_rails(t, bars, _OVERVIEW_BARS[tf], tf)
+        # Stamp the life-cycle (enter now / on-break / extended / played-out) from the final
+        # levels — computed on every read so cached theses can't carry a stale state.
+        state, zlo, zhi = action_state(
+            t.entry, t.breakout, t.target, t.stop, t.status.value, last_close, atr_val
+        )
+        t.action_state = state.value
+        t.trigger_zone_low, t.trigger_zone_high = zlo, zhi
+        return t
 
     cached = cache_get(key, TimeframeThesis)
     if cached is not None:

@@ -1,5 +1,6 @@
 "use client";
 
+import { Flame } from "lucide-react";
 import { RegimeChartView } from "@/components/charts/charts";
 import { StatusPip } from "@/components/level/level";
 import { Badge, Card, CardBody, CardHeader, CardTitle } from "@/components/ui/primitives";
@@ -12,14 +13,34 @@ const DOT: Record<string, string> = {
   bear: "bg-bear",
 };
 
+// A group "rallying too high" (extended/climactic) gets its own hot amber→rose gradient so it
+// stands out from the bull/neutral/bear leaders — it's a leader, but chasing it risks the top.
 function MetricRow({ m }: { m: RegimeMetric }) {
   const tone = statusColor(m.status);
+  const overheated = m.flag === "overheated";
   return (
-    <div className="flex items-start gap-3 border-b border-border/60 py-2 last:border-0">
-      <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", DOT[tone])} />
+    <div
+      className={cn(
+        "flex items-start gap-3 border-b border-border/60 py-2 last:border-0",
+        overheated && "-mx-2 rounded-md bg-gradient-to-r from-amber-500/10 to-rose-500/10 px-2",
+      )}
+    >
+      <span
+        className={cn(
+          "mt-1.5 h-2 w-2 shrink-0 rounded-full",
+          overheated ? "bg-gradient-to-br from-amber-400 to-rose-500" : DOT[tone],
+        )}
+      />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-3">
-          <span className="truncate text-sm">{m.label}</span>
+          <span className="flex min-w-0 items-center gap-1.5 text-sm">
+            <span className="truncate">{m.label}</span>
+            {overheated && (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-500/40 bg-gradient-to-r from-amber-500/20 to-rose-500/20 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                <Flame size={10} /> overheated
+              </span>
+            )}
+          </span>
           <span className="shrink-0 text-sm font-medium tabular-nums">{m.value}</span>
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2">

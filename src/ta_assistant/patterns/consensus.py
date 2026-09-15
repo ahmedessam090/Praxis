@@ -31,6 +31,11 @@ SECONDARY = "secondary"
 CAP = "cap"
 CONSIDERED = "considered"
 
+# A marginal/low-confidence pattern is NOT surfaced as the trade — the timeframe is then
+# treated as having no clean core setup (rather than fabricating one). The clean-rail and
+# flat-neckline detector gates already reject scattered geometry; this is the backstop.
+_MIN_PRIMARY_CONF = 0.6
+
 
 def _overlap_ratio(a: DetectedPattern, b: DetectedPattern) -> float:
     """Intersection over the SMALLER region, so a short structure fully nested inside a
@@ -119,7 +124,13 @@ def assign_consensus(patterns: Sequence[DetectedPattern]) -> None:
         # primary/secondary must be CORE (tradeable) structures — a rounding/double/triple
         # bottom (tier=support) strengthens a setup but is never the trade itself.
         bulls = sorted(
-            (r for r in tf_reps if r.direction == "bullish" and r.tier == "core"),
+            (
+                r
+                for r in tf_reps
+                if r.direction == "bullish"
+                and r.tier == "core"
+                and r.confidence >= _MIN_PRIMARY_CONF  # drop marginal patterns from the trade
+            ),
             key=_rep_key,
             reverse=True,
         )

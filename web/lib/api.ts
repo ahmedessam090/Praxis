@@ -18,6 +18,7 @@ export type PriceNote = S["PriceNote"];
 export type AnalyticalNote = S["AnalyticalNote"];
 export type IndicatorSnapshot = S["IndicatorSnapshot"];
 export type ScreenerCandidate = S["ScreenerCandidate"];
+export type ScreenerGroup = S["ScreenerGroup"];
 export type ScreenFactor = S["ScreenFactor"];
 export type AlphaItem = S["AlphaItem"];
 export type AlphaVerdict = S["AlphaVerdict"];
@@ -130,12 +131,29 @@ export function useScreenerJobs() {
   });
 }
 
-// Poll the lists so they update as Temporal persists results (incrementally, even
-// mid-evaluate). Minor delay is fine; these are tiny reads.
-export function useCandidates() {
+// The named scanner groups (custom / scan / ai). Polled so a freshly-created scan/ai group
+// (and its live candidate count) shows up without a manual refresh.
+export function useGroups() {
   return useQuery({
-    queryKey: ["candidates"],
-    queryFn: () => api<ScreenerCandidate[]>("/api/screener/candidates"),
+    queryKey: ["groups"],
+    queryFn: () => api<ScreenerGroup[]>("/api/screener/groups"),
+    refetchInterval: 5000,
+  });
+}
+
+// Poll the lists so they update as Temporal persists results (incrementally, even
+// mid-evaluate). Minor delay is fine; these are tiny reads. Pass a group to scope to it;
+// omit it to read every candidate. The group is part of the query key so detail views cache
+// independently and the right one invalidates.
+export function useCandidates(group?: string) {
+  return useQuery({
+    queryKey: group ? ["candidates", group] : ["candidates"],
+    queryFn: () =>
+      api<ScreenerCandidate[]>(
+        group
+          ? `/api/screener/candidates?group=${encodeURIComponent(group)}`
+          : "/api/screener/candidates",
+      ),
     refetchInterval: 4000,
   });
 }
@@ -156,28 +174,82 @@ export function useDowngraded() {
   });
 }
 
+export function useCreateGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      api<ScreenerGroup>("/api/screener/groups", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["groups"] }),
+  });
+}
+
+export function useDeleteGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    // Removes the group AND every candidate in it, so both lists must refresh.
+    mutationFn: (name: string) =>
+      api<{ removed: number }>(`/api/screener/groups/${encodeURIComponent(name)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["groups"] });
+      qc.invalidateQueries({ queryKey: ["candidates"] });
+    },
+  });
+}
+
 export function useAddCandidate() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (symbol: string) =>
+    mutationFn: ({ symbol, group }: { symbol: string; group?: string }) =>
       api<ScreenerCandidate>("/api/screener/candidates", {
         method: "POST",
-        body: JSON.stringify({ symbol }),
+        body: JSON.stringify({ symbol, ...(group ? { group } : {}) }),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["candidates"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["candidates"] });
+      qc.invalidateQueries({ queryKey: ["groups"] });
+    },
   });
 }
 
 export function useRunScan() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async () => {
-      const { workflow_id } = await api<{ workflow_id: string }>("/api/screener/scan", {
-        method: "POST",
-      });
+    // The rally-screen: shallow-screens the rallying sectors into `group` (auto-named when
+    // omitted). Async like the other workflows — poll status, then refresh groups + candidates.
+    mutationFn: async (group?: string) => {
+      const qs = group ? `?group=${encodeURIComponent(group)}` : "";
+      const { workflow_id } = await api<{ workflow_id: string }>(
+        `/api/screener/scan${qs}`,
+        { method: "POST" },
+      );
       await waitForWorkflow(`/api/screener/status?workflow_id=${workflow_id}`);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["candidates"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["candidates"] });
+      qc.invalidateQueries({ queryKey: ["groups"] });
+    },
+  });
+}
+
+export function useAiPick() {
+  const qc = useQueryClient();
+  return useMutation({
+    // Synchronous and slow (~10–25s): the LLM proposes good-performer tickers matching the
+    // description, shallow-scores them, and drops them into the group. No polling needed.
+    mutationFn: ({ query, group, limit }: { query: string; group?: string; limit?: number }) =>
+      api<{ added: number; group: string; symbols: string[] }>("/api/screener/ai-pick", {
+        method: "POST",
+        body: JSON.stringify({ query, ...(group ? { group } : {}), ...(limit ? { limit } : {}) }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["candidates"] });
+      qc.invalidateQueries({ queryKey: ["groups"] });
+    },
   });
 }
 
@@ -220,7 +292,10 @@ export function useDeleteCandidate() {
   return useMutation({
     mutationFn: (symbol: string) =>
       api(`/api/screener/candidates/${encodeURIComponent(symbol)}`, { method: "DELETE" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["candidates"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["candidates"] });
+      qc.invalidateQueries({ queryKey: ["groups"] });
+    },
   });
 }
 
@@ -228,6 +303,9 @@ export function useClearCandidates() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => api("/api/screener/candidates", { method: "DELETE" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["candidates"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["candidates"] });
+      qc.invalidateQueries({ queryKey: ["groups"] });
+    },
   });
 }

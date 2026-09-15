@@ -23,6 +23,7 @@ from ta_assistant.analyst.observability import record_llm
 from ta_assistant.analyst.prompts import CHARTIST_SYSTEM
 from ta_assistant.analyst.tools import ToolContext, build_registry, run_tool
 from ta_assistant.config import Settings, get_settings
+from ta_assistant.patterns.trendlines import fit_trendline, line_fit_quality
 from ta_assistant.synthesis.schema import (
     DetectedPattern,
     PatternStatus,
@@ -167,7 +168,49 @@ def _validate_levels(
             f"levels not sane: need {order}, all positive and within band "
             f"{res.get('sane_band')}; revise using tool-measured levels"
         )
+    # Validate the EFFECTIVE entry the thesis will use (not just the breakout). This is the hole
+    # the MU bug slipped through: a re-break entry above an already-hit target.
+    if inp.get("direction", "bullish") == "bullish":
+        entry = inp.get("entry") if inp.get("entry") is not None else breakout
+        if not (stop < entry < target):
+            return False, (
+                f"entry {entry} must sit between the stop {stop} and target {target} — use the "
+                f"breakout pivot as the entry (an entry above the target is incoherent); revise"
+            )
+        last_close = float(ctx.df["close"].to_numpy(dtype=float)[-1])
+        if target <= last_close:
+            return False, (
+                f"target {target} is at or below the current price {last_close:.2f} — this move "
+                f"has already played out; submit a setup with upside left or identify it as "
+                f"forming with no firm target"
+            )
     return True, ""
+
+
+_LINE_ROLES = {"resistance", "support", "neckline"}
+
+
+def _verify_line_shape(shape: Shape, ctx: ToolContext) -> bool:
+    """For a defining-line shape (trendline / neckline / rail), score it against the REAL swing
+    pivots: stamp touch_count + fit_residual so the user can match the straight line, and drop a
+    line anchored to nothing real (0 touches). Non-line shapes always pass through unchanged."""
+    is_line = shape.kind == ShapeKind.TRENDLINE or shape.role in _LINE_ROLES
+    if not is_line or len(shape.points) < 2:
+        return True
+    try:
+        line = fit_trendline(
+            [ctx.pos(p.ts) for p in shape.points], [p.price for p in shape.points]
+        )
+    except ValueError:
+        return True
+    geo = ctx.geo("fine")
+    last_close = float(ctx.df["close"].to_numpy(dtype=float)[-1])
+    tol = max(0.02 * last_close, 1.5 * geo.atr_at(len(ctx.df) - 1))  # a point or two of slack
+    pivots = [*geo.pivots, *ctx.geo("medium").pivots]
+    touches, residual = line_fit_quality(line, pivots, tol)
+    shape.touch_count = touches
+    shape.fit_residual = round(residual, 2) if residual != float("inf") else None
+    return touches >= 1  # a line that touches no real swing at all is a phantom — drop it
 
 
 def _parse_shapes(raw: list[dict[str, Any]], ctx: ToolContext) -> list[Shape]:
@@ -190,14 +233,14 @@ def _parse_shapes(raw: list[dict[str, Any]], ctx: ToolContext) -> list[Shape]:
                 continue
         if not points and kind != ShapeKind.HLINE:
             continue
-        shapes.append(
-            Shape(
-                kind=kind,
-                points=points,
-                label=str(s.get("label", "")),
-                role=str(s.get("role", "primary")),
-            )
+        shape = Shape(
+            kind=kind,
+            points=points,
+            label=str(s.get("label", "")),
+            role=str(s.get("role", "primary")),
         )
+        if _verify_line_shape(shape, ctx):  # drop phantom lines; stamp touch_count on real ones
+            shapes.append(shape)
     return shapes
 
 
@@ -208,6 +251,17 @@ def _build_thesis(
     entry = inp.get("entry") if inp.get("entry") is not None else breakout
     target = inp.get("target")
     stop = inp.get("stop")
+    # Repair (belt to _validate_levels' suspenders): if the breakout-based levels are sane but
+    # the submitted entry sits outside (stop, target), snap entry to the breakout pivot so the
+    # thesis can never carry an incoherent entry/R:R (the MU bug).
+    if (
+        breakout is not None
+        and stop is not None
+        and target is not None
+        and 0 < stop < breakout < target
+        and (entry is None or not (stop < entry < target))
+    ):
+        entry = breakout
     rr = None
     if entry is not None and stop is not None and target is not None and abs(entry - stop) > 0:
         rr = round((target - entry) / (entry - stop), 2)
@@ -424,6 +478,10 @@ def textbookize(thesis: TimeframeThesis, seeds: list[DetectedPattern]) -> Timefr
         thesis.price_notes = _level_notes(
             thesis.entry or thesis.breakout, thesis.target, thesis.stop, thesis.target2
         )
+        # Keep R:R consistent with the (possibly repaired) entry — never leave it stale.
+        e, t, s = thesis.entry, thesis.target, thesis.stop
+        if e is not None and t is not None and s is not None and abs(e - s) > 0:
+            thesis.rr_ratio = round((t - e) / (e - s), 2)
     return _attach_support(thesis, seeds)
 
 

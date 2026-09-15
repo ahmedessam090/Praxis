@@ -26,7 +26,7 @@ _RETRY = RetryPolicy(maximum_attempts=3)
 @workflow.defn
 class ScannerWorkflow:
     @workflow.run
-    async def run(self) -> int:
+    async def run(self, group: str = "") -> int:
         now_iso = workflow.now().isoformat()
 
         await asyncio.gather(
@@ -48,7 +48,7 @@ class ScannerWorkflow:
         )
         return await workflow.execute_activity(
             persist_candidates,
-            args=[candidates],
+            args=[candidates, group],
             start_to_close_timeout=timedelta(seconds=60),
             retry_policy=_RETRY,
         )

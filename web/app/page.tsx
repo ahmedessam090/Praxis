@@ -32,7 +32,7 @@ export default function RegimePage() {
           <h1 className="text-xl font-semibold tracking-tight">Market Regime</h1>
           <p className="mt-1 text-sm text-muted">
             Current market conditions — Dow Theory · Weinstein · O&apos;Neil/Minervini · Murphy
-            intermarket. Should you be buying breakouts now?
+            intermarket. How hospitable has this tape been to breakouts?
           </p>
         </div>
         <Button onClick={() => refresh.mutate()} disabled={refresh.isPending}>
