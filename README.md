@@ -1,10 +1,11 @@
-# TA Assistant — Technical-Analysis Swing-Trading Decision-Support
+# Praxis — Classical Technical Analysis, Made Reproducible
 
-A **personal, local-only** decision-support analyst for **LONG-side** swing trading based
-on **classical technical analysis** (breakout + range trading within chart patterns,
-Peter Brandt / Mark Minervini style). It detects patterns, annotates charts, and argues a
-reasoned case — **you always place the trades.** Not short selling, not day trading, not
-fundamentals, not auto-execution.
+A **personal, local-only** decision-support tool for **long-side** swing trading built on
+**classical technical analysis** — chart patterns, trendlines, stage analysis and market
+breadth. It reads the market regime, screens a universe for structurally sound setups, and
+argues a reasoned case over an annotated chart. **It never places a trade.**
+
+Not short selling, not day trading, not fundamentals, not auto-execution.
 
 > ⚠️ **Not financial advice.** This is a personal research and educational tool that
 > outputs the author's own charting heuristics. Nothing it produces is investment advice,
@@ -17,138 +18,185 @@ fundamentals, not auto-execution.
 > warranty of any kind**; see [Legal](#legal) and [LICENSE](LICENSE). You alone are
 > responsible for every trade you place.
 
-Every analysis runs as a **durable [Temporal](https://temporal.io) workflow** of
-**activities**, so it survives worker crashes and retries transient failures without
-redoing completed work.
+## What it does
 
-**Detection is hybrid:** deterministic code (numpy/scipy) finds the swing pivots, fits the
-trendlines, and computes the *exact* levels — neckline, breakout, measured-move target,
-stop, prior resistance — then **OpenAI's vision model** validates/scores the candidate over
-the annotated chart and writes the rationale. Exact, reproducible levels + LLM judgment.
+Three surfaces, each backed by a durable workflow:
 
-> **Status: Phase 1 COMPLETE** — the pattern-recognition engine + single-ticker analysis +
-> annotated charts + a Streamlit UI, proven by **46 automated tests** (incl. a worker-crash
-> durability proof) and verified end-to-end on real data + a live OpenAI call. The 5 LONG
-> patterns: inverse H&S, double bottom, ascending triangle, cup-and-handle, bull flag,
-> detected across daily/weekly/monthly with multi-timeframe nesting. Next: the **Alpha list**
-> (auto-screening a universe).
+**1. Market Regime** — the top-down read, before any individual stock. Six book-grounded
+pillars scored from computed metrics: Primary Trend (Dow Theory + Weinstein stage),
+Institutional Supply/Demand (distribution days, follow-through day, Power Trend), Market
+Breadth, Intermarket & Commodities (including the dollar and a liquidity-cycle read), Sector
+& Industry Leadership, and Volatility. Produces a regime state and a characterisation of how
+hospitable the tape has been to breakouts.
+
+**2. Screener → ALPHA list** — bottom-up candidate discovery. Build named groups by hand,
+sweep the rallying sectors with a deterministic pre-screen (trend template, relative strength
+vs SPY), or describe what you want and let the model propose tickers. Promising candidates go
+through full multi-timeframe analysis and an **ALPHA verdict**: a conviction score, the
+measured levels, and a per-factor breakdown of why it qualified. Names that lose conviction
+on refresh drop to a **Downgraded** list with the reason.
+
+**3. Ticker Analysis** — the deep read on one symbol across daily, weekly and monthly, with
+the detected structure drawn on an interactive candlestick chart: rails, necklines, curves,
+labelled pivots, and every level annotated.
+
+## How detection works
+
+Detection is **hybrid**, and the split is deliberate:
+
+- **Deterministic code (numpy/scipy)** finds the swing pivots, fits the trendlines, and
+  computes the *exact* levels — neckline, breakout pivot, measured-move target, stop, prior
+  resistance, trigger range. **18 pattern detectors** cover the classical vocabulary:
+  triangles (ascending, descending, symmetrical), channels, wedges, flags, rectangles,
+  cup-and-handle, head-and-shoulders (and inverse), double/triple bottoms and tops, and
+  rounding bottoms. Bearish structures are detected too — not to trade short, but to surface
+  a **cap** that threatens a long thesis.
+- **An LLM chartist** then works the chart like a human would, through a **tool loop**: list
+  pivots, fit a rail through the pivots *it* chooses, check breakout volume, classify status,
+  and only then submit a thesis. It can confirm, refine or override the engine's candidates,
+  but it can never invent a level — every number must come back from a tool.
+- **A pattern judge** vets each surfaced setup independently, rejecting mislabelled geometry
+  (an "ascending triangle" whose rails aren't real, a tilted-neckline "H&S"), with a
+  deterministic floor that still works when no LLM key is present.
+
+The result: exact, reproducible levels plus argued judgment — and a deterministic path that
+runs with **no API key at all** (`LLM_ENABLED=false`).
+
+Setup states are deliberately **descriptive rather than directive** — `awaiting_break`,
+`in_range`, `extended`, `not_yet`, `played_out`, `invalid` — because they describe where price
+sits relative to a measured pivot, not what anyone should do about it.
 
 ## Architecture
 
 ```
- Temporal Server (Docker, Postgres-backed)      durable event history = source of truth
-   gRPC :7233   ·   Web UI :8088
-        ▲  poll task-queue "ta-default"
-        │
- Python Worker (temporalio)
-   Workflows = PURE orchestration (replayed, deterministic) — NO I/O
-   Activities = ALL I/O (retried, idempotent) ──► SQLite domain store (data/ta.db)
-                                              └──► data providers (Alpaca/FRED/yf — Phase 1)
+ Next.js 15 + React 19 (:3000)            Temporal Server (Docker, Postgres :5433)
+   Regime · Screener · Ticker                gRPC :7233   ·   Web UI :8088
+        │  fetch                                   ▲  poll task-queue "ta-default"
+        ▼                                          │
+ FastAPI (127.0.0.1:8000) ──starts workflows──► Python Worker (temporalio)
+   serves JSON, triggers runs                Workflows = PURE orchestration (replayed) — NO I/O
+                                             Activities = ALL I/O (retried, idempotent)
+                                                     ├──► SQLite domain store (data/ta.db)
+                                                     └──► yfinance / Stooq
 ```
 
-Two **separate** databases: Temporal keeps its own history in **Postgres (Docker)**;
-our application data lives in **SQLite** (`data/ta.db`, SQLAlchemy + Alembic, WAL mode).
-Workflows never touch I/O; everything fallible/non-deterministic is an activity.
+Two **separate** databases: Temporal keeps its own event history in **Postgres** (Docker);
+application data lives in **SQLite** (`data/ta.db`, SQLAlchemy + Alembic, WAL mode).
+Workflows never touch I/O; everything fallible or non-deterministic is an activity, so a
+crashed worker resumes instead of restarting.
 
-### Layout (maps to the eventual 5 layers)
+Seven workflows: `AnalyzeTickerWorkflow`, `ScannerWorkflow`, `AlphaCandidateWorkflow`,
+`AlphaRefreshWorkflow`, `MarketRegimeWorkflow`, `CandidateAnalysisWorkflow`, and a
+`CrashDemoWorkflow` used by the durability test.
+
+### Layout
 
 ```
-src/ta_assistant/
-  config.py            # pydantic-settings
-  temporal/            # orchestration spine: client, worker, sandbox, workflows/, activities/
-  db/                  # Layer 1 substrate: engine (WAL PRAGMAs), session, models
-  data/                # Layer 1 providers — Alpaca/FRED/yfinance stubs (Phase 1)
-  patterns/            # Layer 2 — rule-based pattern engine (Phase 1+)
-  regime/              # Layer 3 — macro/regime + sector rotation (Phase 3)
-  synthesis/           # Layer 4 — LLM narrative verdict (Phase 4)
-  presentation/        # Layer 5 — backtest + annotated charts + alerts (Phase 4-5)
+src/ta_assistant/          # the Python package (the repo is named Praxis; the module is not)
+  config.py                # pydantic-settings
+  temporal/                # orchestration spine: client, worker, sandbox, workflows/, activities/
+  db/                      # engine (WAL PRAGMAs), session, models
+  data/                    # providers: yfinance (primary), Stooq (fallback), earnings
+  patterns/                # geometry engine: pivots, trendlines, 18 detectors, consensus, action_state
+  analyst/                 # LLM chartist: prompts, tool loop, pattern judge, cache, observability
+  screener/                # universe, deterministic pre-screen, ALPHA gate, groups, repo
+  regime/                  # the six pillars, metrics, sectors, breadth
+  synthesis/               # the output contract (pydantic) + vision consensus validator
+  presentation/            # chart rendering (Lightweight Charts, Plotly, mplfinance)
+  api/                     # FastAPI routers: analysis, screener, regime, llm, health
+web/                       # Next.js app (App Router, Tailwind 4, TanStack Query)
 ```
 
 ## Quickstart
 
 ```bash
-make install            # pin Python 3.12, create venv, sync deps (incl. data/viz/ui/llm)
-cp .env.example .env    # set OPENAI_API_KEY (or OPENAI_KEY) for LLM validation; optional otherwise
-make temporal-up        # start Temporal (Postgres + server + UI). UI: http://localhost:8088
+make install            # pin Python 3.12, create venv, sync all dependency groups
+cp .env.example .env    # optional: add OPENAI_API_KEY for the LLM chartist
+make temporal-up        # start Temporal (Postgres + server + UI at :8088)
 make migrate            # create data/ta.db + tables
-make worker             # terminal A: run the durable worker
-make ui                 # terminal B: Streamlit UI -> type a ticker -> see annotated analysis
+make dev                # worker + FastAPI + Next.js together — open http://localhost:3000
 ```
 
-### Analyzing a ticker
+`make dev` runs all three processes; Ctrl-C stops them. To run them separately use `make
+worker`, `make api` and `make web` in three terminals. `make help` lists every target.
 
-Type a symbol (e.g. `AAPL`) in the UI and the durable `AnalyzeTickerWorkflow` runs:
-fetch all-time history → detect patterns on daily/weekly/monthly → render annotated charts →
-OpenAI validates + narrates → persist. You get interactive Plotly charts, the annotated PNG
-the LLM reviewed, and per-pattern detail (entry/breakout, neckline, target, stop, R:R,
-status, confidence, nesting, and the analyst rationale). The deterministic engine runs with
-**no key** (set `LLM_ENABLED=false` or omit the key); add the OpenAI key to enable validation.
+The deterministic engine needs **no API key**. Add `OPENAI_API_KEY` to enable the LLM
+chartist, the ALPHA judge and the narratives; set `LLM_ENABLED=false` to force the
+deterministic path. `make langfuse-up` starts a self-hosted [Langfuse](https://langfuse.com)
+at :3001 for LLM cost and trace visibility.
 
-## The durability proof (the headline)
+> The Streamlit UI (`make ui`) is the original frontend, kept working but superseded by the
+> Next.js app.
 
-**Automated** (`make integration` → `tests/integration/test_worker_crash_recovery.py`):
-a real worker subprocess starts a workflow, gets **SIGKILLed mid-activity**, a fresh
-worker takes over, and the workflow completes with the **same run id** (resumed, not
-restarted) and an **exactly-once** side effect (the re-dispatched activity is idempotent).
+## The durability proof
 
-**Manual** (watch it in the UI):
+Every analysis is a Temporal workflow, which is what makes a long multi-step LLM pipeline
+survivable. This is tested, not asserted:
+
+**Automated** (`make integration` → `tests/integration/test_worker_crash_recovery.py`): a
+real worker subprocess starts a workflow, gets **SIGKILLed mid-activity**, a fresh worker
+takes over, and the workflow completes with the **same run id** — resumed, not restarted —
+with an **exactly-once** side effect, because the re-dispatched activity is idempotent.
+
+**Manual** (watch it happen):
 
 ```bash
 make temporal-up && make migrate
 make worker                                  # terminal A
 uv run python scripts/start_analysis.py AAPL # terminal B — starts a workflow
 # While it runs, Ctrl-C terminal A to kill the worker.
-# Open http://localhost:8088 — the workflow stays "Running" (history safe in Postgres).
+# Open http://localhost:8088 — the workflow stays "Running" (history is safe in Postgres).
 make worker                                  # restart: it RESUMES; completed activities
                                              # are not re-run; one row lands in data/ta.db.
 ```
 
 ## Tests
 
+**276 tests**, no Docker required — the suite spins up its own Temporal test server.
+
 ```bash
-make unit          # in-process: config, migrations, activities, workflow logic, retry, replay
+make unit          # config, migrations, activities, workflow logic, retry, replay, geometry
 make integration   # worker-crash recovery (SIGKILL → resume) + end-to-end persistence
-make test          # unit + integration (no Docker needed; spins its own dev server)
+make test          # unit + integration
 make smoke         # live-stack end-to-end (needs `make temporal-up` + a worker)
 make lint typecheck
 ```
 
-`make help` lists every target.
+`typecheck` is **mypy strict** across the package.
 
-## Determinism rules (enforced by the sandbox + tests + review)
+## Determinism rules (enforced by the sandbox, the tests, and review)
 
-- Workflows: no wall-clock (`workflow.now()`), no `random`/`uuid` (`workflow.random()`),
-  no `asyncio.sleep` (`workflow.sleep`), no threads, **no I/O/DB/network**.
+- Workflows: no wall-clock (`workflow.now()`), no `random`/`uuid` (`workflow.random()`), no
+  `asyncio.sleep` (`workflow.sleep`), no threads, **no I/O, DB or network**.
 - All I/O lives in **activities**, which are **idempotent** via a stable dedup key
-  (`workflow_id` + step — never attempt/now/random), because they can run more than once.
-- Heavy libs (pandas, alpaca, mplfinance, anthropic) are imported **inside activities**,
-  never at workflow-module import time, so they stay out of the sandbox.
+  (`workflow_id` + step — never attempt, now, or random), because they can run more than once.
+- Heavy libs (pandas, mplfinance, openai, anthropic) are imported **inside activities**, never
+  at workflow-module import time, so they stay out of the sandbox.
 - The committed golden history (`tests/histories/candidate_v1.json`) replays in
-  `test_determinism_replay.py`; regenerate it with `make golden` after an intentional
-  change to the workflow's orchestration.
+  `test_determinism_replay.py`; regenerate it with `make golden` after an intentional change
+  to a workflow's orchestration.
 
-## Roadmap
+## Tuning it
 
-- **Pre-phase (done):** Temporal + SQLite skeleton, durable sample pipeline, full test gate.
-- **Phase 1 (next):** the **Alpha list** — wire `data/` providers, build `patterns/`
-  (swing highs/lows, trendlines, breakout/range detection), turn the
-  `CandidateAnalysisWorkflow` activities into real fetch→indicators→pattern→persist, add
-  `watchlist`/`patterns`/`alerts` tables, render annotated charts.
-- **Phases 3-5:** regime/sector layer, LLM synthesis + diff-driven alerts, backtesting,
-  and a real-time upgrade. The tiered scheduler becomes Temporal **Schedules**.
+The ALPHA rubric lives in **plain English** in
+[`src/ta_assistant/analyst/alpha_rules.md`](src/ta_assistant/analyst/alpha_rules.md). Edit
+it and the next run picks it up — the file is hashed into the verdict cache key, so cached
+verdicts recompute on their own with no code change and no version bump. A deterministic
+gate in `screener/alpha.py` mirrors the rubric's spirit for the no-LLM path.
 
 ## Notes
 
-- **Python is pinned to 3.12** (`.python-version`) for mature wheels across the
-  temporalio Rust core / pandas / numpy / pydantic-core stack; the system's 3.14 is
-  intentionally not used. Bumping later is a one-line change.
-- **Ports** avoid the host's existing services: Temporal's Postgres is on **5433** (not
-  5432), gRPC **7233**, UI **8088**.
-- The fast time-skipping unit tests use a test server that runs x64-under-Rosetta on
-  Apple Silicon; `conftest.py` falls back to a local dev server if it can't start, so the
-  suite is not hard-blocked on Rosetta. Integration tests use the dev server directly.
-- Alternative (no Docker): `brew install temporal && temporal server start-dev
-  --db-filename .temporal/temporal.db --ui-port 8233`, then point `TEMPORAL_ADDRESS` at it.
+- **Python is pinned to 3.12** (`.python-version`) for mature wheels across the temporalio
+  Rust core / pandas / numpy / pydantic-core stack.
+- **Ports** avoid clashing with common local services: Temporal's Postgres on **5433**, gRPC
+  **7233**, Temporal UI **8088**, FastAPI **8000**, Next.js **3000**, Langfuse **3001**.
+- The API binds to **127.0.0.1** with CORS limited to localhost. It is not built to be
+  exposed; there is no auth.
+- The fast time-skipping unit tests use a test server that runs x64-under-Rosetta on Apple
+  Silicon; `conftest.py` falls back to a local dev server if it can't start, so the suite is
+  not hard-blocked on Rosetta.
+- Alternative to Docker: `brew install temporal && temporal server start-dev --db-filename
+  .temporal/temporal.db --ui-port 8233`, then point `TEMPORAL_ADDRESS` at it.
 
 ## Data sources
 
@@ -160,7 +208,7 @@ the local SQLite cache (`data/ta.db`) is gitignored.
 Your use of those sources is governed by their terms, not by this project's licence. Yahoo's
 terms contemplate personal, non-commercial use and restrict redistribution of their data, so
 treat anything the tool caches as yours to look at and not yours to republish. If you need
-data you can rely on or redistribute, buy a licensed feed — the `data/` providers are behind a
+data you can rely on or redistribute, buy a licensed feed — the `data/` providers sit behind a
 small interface precisely so you can swap one in.
 
 The screener's ~186-ticker universe (`src/ta_assistant/screener/universe.py`) and the ~45-name
@@ -202,4 +250,3 @@ TradingView, Yahoo, Stooq, or any data or brokerage provider.
 
 Third-party attributions, including the vendored TradingView Lightweight Charts build, are
 recorded in [NOTICE](NOTICE).
-```
